@@ -34,6 +34,45 @@ SolarSensor::SolarSensor(
 
 esp_err_t SolarSensor::init()
 {
+    esp_err_t err;
+
+    // 1. OTA Manager first to handle OTA updates
+    if ((err = init_ota()) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to initialize OTA: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (ota_manager_.check_pending_verify()) {
+        pending_firmware_verify_ = true;
+    }
+
+    // 2. Wifi for esp-now and OTA
+    if ((err = init_wifi()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize WiFi: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // 3. Initialize storage
+    if ((err = init_core_storage()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize core storage: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // 4. Initialize esp-now
+    if ((err = init_espnow()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize esp-now: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // Roolback if session is not healthy
+    if (!session_healthy_) {
+        if (pending_firmware_verify_) {
+            ESP_LOGE(TAG, "Session not healthy during OTA verification");
+            check_firmware();
+        }
+        return ESP_FAIL;
+    }
+
     ESP_LOGI(TAG, "SolarSensor initialized");
     return ESP_OK;
 }
@@ -152,4 +191,65 @@ void SolarSensor::save_persistent_state()
     // }
 
     last_nvs_commit_ts_ = now_ms;
+}
+
+void SolarSensor::check_firmware()
+{
+    if (!pending_firmware_verify_) {
+        return;
+    }
+
+    if (!session_healthy_ || !ota_manager_.confirm_app_valid()) {
+        farm::OtaErrorCode err =
+            !session_healthy_ ? farm::OtaErrorCode::HEALTH_CHECK_FAILED : farm::OtaErrorCode::PARTITION_CONFIRM_FAILED;
+
+        ESP_LOGE(TAG, "Failed to confirm firmware. Triggering rollback (reason: %d).", static_cast<int>(err));
+
+        send_ota_report(farm::OtaExecResult::ROLLBACK_TRIGGERED, err);
+        wifi_.disconnect(2000);
+        espnow_.deinit();
+        wifi_.stop();
+
+        ota_manager_.rollback_and_reboot();
+        return;
+    }
+
+    // If we get here, the firmware is valid and confirme
+    pending_firmware_verify_ = false;
+
+    auto version = ota_manager_.get_running_version();
+    if (version.has_value()) {
+        core_.fw_major = version->major;
+        core_.fw_minor = version->minor;
+        core_.fw_patch = version->patch;
+    }
+    ESP_LOGI(TAG, "Firmware confirmed successfully. Versio: %d.%d.%d", core_.fw_major, core_.fw_minor, core_.fw_patch);
+
+    pending_core_commit_ = true; // save new version in storage
+
+    send_ota_report(farm::OtaExecResult::CONFIRMED_SUCCESS, farm::OtaErrorCode::NONE);
+}
+
+esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code)
+{
+    farm::OtaStatusReport report = {};
+    report.power_profile = core_.power_profile;
+    report.result = result;
+    report.error_code = error_code;
+
+    auto version = ota_manager_.get_running_version();
+    if (version.has_value()) {
+        report.fw_major = version->major;
+        report.fw_minor = version->minor;
+        report.fw_patch = version->patch;
+    }
+
+    ESP_LOGI(TAG, "Sending OTA status report: result=%u, error_code=%u", result, error_code);
+    return espnow_.send_data(
+        espnow::ReservedIds::HUB,
+        static_cast<uint8_t>(farm::PayloadType::OTA_STATUS_REPORT),
+        &report,
+        sizeof(report),
+        true // require_ack
+    );
 }

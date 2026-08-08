@@ -69,5 +69,8 @@ private:
     esp_err_t init_espnow();
     esp_err_t init_ota();
 
+    void check_firmware();
+    esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
+
     void save_persistent_state();
 };
