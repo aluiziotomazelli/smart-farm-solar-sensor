@@ -1,0 +1,30 @@
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# Host test build artifacts
+host_test/**/build/
+host_test/**/.cache/
+host_test/**/coverage/
+
+# IDE
+.vscode/
+.cache/
+*.code-workspace
+.agents/
+
+# OS
+.DS_Store
+
+# Secrets
+**/secrets.h
+**/secrets.hpp
+.env
+
+# Local logs
+logger/unfilter-logs
+todo/
+
