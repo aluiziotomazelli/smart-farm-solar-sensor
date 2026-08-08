@@ -19,7 +19,8 @@ SolarSensor::SolarSensor(
     wifi_manager::IWiFiManager& wifi,
     idf_hals::ISleepHAL& hal_sleep,
     idf_hals::ISystemHAL& hal_system,
-    time_manager::ITimeManager& time_manager)
+    time_manager::ITimeManager& time_manager,
+    idf_hals::IHalFreertos& hal_freertos)
     : core_storage_(core_storage)
     , hal_timer_(hal_timer)
     , ota_manager_(ota_manager)
@@ -31,6 +32,7 @@ SolarSensor::SolarSensor(
     , hal_sleep_(hal_sleep)
     , hal_system_(hal_system)
     , time_manager_(time_manager)
+    , hal_rtos_(hal_freertos)
 {
 }
 
@@ -274,4 +276,32 @@ esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErro
         sizeof(report),
         true // require_ack
     );
+}
+
+esp_err_t SolarSensor::connect_wifi_with_retry(uint8_t max_attempts)
+{
+    if (wifi_.get_state() == wifi_manager::State::CONNECTED_GOT_IP) {
+        return ESP_OK;
+    }
+
+    static constexpr uint16_t DELAY_BETWEEN_ATTEMPTS_MS = 1500;
+    esp_err_t err = ESP_FAIL;
+    for (uint8_t attempt = 1; attempt <= max_attempts; ++attempt) {
+        ESP_LOGI(TAG, "Connecting to WiFi (attempt %u/%u)...", attempt, max_attempts);
+        err = wifi_.connect(10000);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "WiFi connected successfully");
+            return ESP_OK;
+        }
+
+        ESP_LOGW(TAG, "WiFi connection attempt %u failed: %s", attempt, esp_err_to_name(err));
+        if (attempt < max_attempts) {
+            wifi_.disconnect(2000);
+            uint32_t delay_ms = DELAY_BETWEEN_ATTEMPTS_MS * attempt;
+            hal_rtos_.task_delay(pdMS_TO_TICKS(delay_ms));
+        }
+    }
+
+    ESP_LOGE(TAG, "Failed to connect to WiFi after %u attempts: %s", max_attempts, esp_err_to_name(err));
+    return err;
 }

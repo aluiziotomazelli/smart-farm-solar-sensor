@@ -49,8 +49,8 @@ static constexpr const char* STATS_NVS_KEY = "solar_stats";
 static idf_hals::TimerHAL hal_timer;
 static idf_hals::NvsHAL nvs_hal;
 static idf_hals::SysRomHAL hal_sys_rom;
-static idf_hals::HalAdcOneshot oneshot_hal;  // Batery monitor ADC
-static idf_hals::HalAdcCalibration cali_hal; // Batery monitor ADC
+static idf_hals::HalAdcOneshot hal_oneshot;  // Batery monitor ADC
+static idf_hals::HalAdcCalibration hal_cali; // Batery monitor ADC
 static idf_hals::GpioHAL hal_gpio;
 static idf_hals::HalFreertos hal_freertos;
 static idf_hals::SleepHAL hal_sleep;
@@ -69,7 +69,7 @@ static battery_monitor::BatteryMonitorConfig monitor_config = {
     .divider_top_ohms = 240000,
     .divider_bottom_ohms = 240000};
 
-static battery_monitor::AdcBatteryReader adc_reader{oneshot_hal, cali_hal, hal_sys_rom, adc_config};
+static battery_monitor::AdcBatteryReader adc_reader{hal_oneshot, hal_cali, hal_sys_rom, adc_config};
 static battery_monitor::BatteryMonitor bat_monitor{adc_reader, monitor_config};
 
 // Persistence and App instantiation
@@ -125,7 +125,8 @@ extern "C" void app_main()
         wifi,
         hal_sleep,
         hal_system,
-        time_mgr);
+        time_mgr,
+        hal_freertos);
 
     // Initialize application state (enable remote logging for field tests)
 

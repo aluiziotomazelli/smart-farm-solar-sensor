@@ -11,6 +11,7 @@
 #include "interfaces/i_hal_sleep.hpp"
 #include "interfaces/i_hal_system.hpp"
 #include "interfaces/i_time_manager.hpp"
+#include "interfaces/i_hal_freertos.hpp"
 
 #include "solar_sensor_stats.hpp"
 
@@ -32,7 +33,8 @@ public:
         wifi_manager::IWiFiManager& wifi,
         idf_hals::ISleepHAL& hal_sleep,
         idf_hals::ISystemHAL& hal_system,
-        time_manager::ITimeManager& time_manager);
+        time_manager::ITimeManager& time_manager,
+        idf_hals::IHalFreertos& hal_freertos);
 
     virtual ~SolarSensor() = default;
 
@@ -63,6 +65,7 @@ private:
     idf_hals::ISleepHAL& hal_sleep_;
     idf_hals::ISystemHAL& hal_system_;
     time_manager::ITimeManager& time_manager_;
+    idf_hals::IHalFreertos& hal_rtos_;
 
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
@@ -75,6 +78,6 @@ private:
 
     void check_firmware();
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
-
+    esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     void save_persistent_state();
 };
