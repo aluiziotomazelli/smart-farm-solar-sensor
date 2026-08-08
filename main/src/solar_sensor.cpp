@@ -17,8 +17,9 @@ SolarSensor::SolarSensor(
     espnow::IEspNowManager& espnow,
     QueueHandle_t rx_queue_,
     wifi_manager::IWiFiManager& wifi,
-    idf_hals::ISleepHAL& hal_sleep_,
-    idf_hals::ISystemHAL& hal_system_)
+    idf_hals::ISleepHAL& hal_sleep,
+    idf_hals::ISystemHAL& hal_system,
+    time_manager::ITimeManager& time_manager)
     : core_storage_(core_storage)
     , hal_timer_(hal_timer)
     , ota_manager_(ota_manager)
@@ -27,8 +28,9 @@ SolarSensor::SolarSensor(
     , espnow_(espnow)
     , rx_queue_(rx_queue_)
     , wifi_(wifi)
-    , hal_sleep_(hal_sleep_)
-    , hal_system_(hal_system_)
+    , hal_sleep_(hal_sleep)
+    , hal_system_(hal_system)
+    , time_manager_(time_manager)
 {
 }
 
@@ -49,6 +51,11 @@ esp_err_t SolarSensor::init()
     // 2. Wifi for esp-now and OTA
     if ((err = init_wifi()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize WiFi: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    if ((err = init_time()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize TimeManager: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
@@ -92,16 +99,25 @@ void SolarSensor::on_ota_triggered(OtaTriggerSource source)
 // ===================================================================
 // Private Methods
 // ===================================================================
-esp_err_t SolarSensor::init_core_storage()
+esp_err_t SolarSensor::init_ota()
 {
-    CoreStorage default_core = {};
-    default_core.reset();
-    default_core.node_id = farm::NodeId::SOLAR_SENSOR;
-    default_core.node_type = farm::NodeType::SENSOR;
-    default_core.power_profile = farm::PowerProfile::ALWAYS_ON;
+    OtaConfig ota_config{
+        .device_type = "solar_sensor",
+        .manifest_url = SERVER_URL,
+        .task_stack_size = 8192,
+        .task_priority = 5,
+        .transport = {.manifest_timeout_ms = 3000, .firmware_timeout_ms = 30000},
+        .security = {.allow_http_during_development = true},
+        .allow_same_version = false,
+        .restart_on_success = false,
+    };
 
-    return core_storage_.init(
-        core_, default_core, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+    if (!ota_manager_.init(ota_config)) {
+        ESP_LOGE(TAG, "Failed to initialize OTA Manager");
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t SolarSensor::init_wifi()
@@ -122,6 +138,33 @@ esp_err_t SolarSensor::init_wifi()
     return ESP_OK;
 }
 
+esp_err_t SolarSensor::init_time()
+{
+    time_manager::TimeManagerConfig time_config;
+    time_config.use_dhcp_sntp = false;
+    time_config.timezone = "<-04>4";
+
+    esp_err_t err = time_manager_.init(time_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize TimeManager: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t SolarSensor::init_core_storage()
+{
+    CoreStorage default_core = {};
+    default_core.reset();
+    default_core.node_id = farm::NodeId::SOLAR_SENSOR;
+    default_core.node_type = farm::NodeType::SENSOR;
+    default_core.power_profile = farm::PowerProfile::ALWAYS_ON;
+
+    return core_storage_.init(
+        core_, default_core, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+}
+
 esp_err_t SolarSensor::init_espnow()
 {
     espnow::EspNowConfig config;
@@ -135,27 +178,6 @@ esp_err_t SolarSensor::init_espnow()
     if ((err = espnow_.init(config)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize EspNowManager: %s", esp_err_to_name(err));
         return err;
-    }
-
-    return ESP_OK;
-}
-
-esp_err_t SolarSensor::init_ota()
-{
-    OtaConfig ota_config{
-        .device_type = "solar_sensor",
-        .manifest_url = SERVER_URL,
-        .task_stack_size = 8192,
-        .task_priority = 5,
-        .transport = {.manifest_timeout_ms = 3000, .firmware_timeout_ms = 30000},
-        .security = {.allow_http_during_development = true},
-        .allow_same_version = false,
-        .restart_on_success = false,
-    };
-
-    if (!ota_manager_.init(ota_config)) {
-        ESP_LOGE(TAG, "Failed to initialize OTA Manager");
-        return ESP_FAIL;
     }
 
     return ESP_OK;

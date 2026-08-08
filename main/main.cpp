@@ -13,6 +13,8 @@
 #include "hal_freertos.hpp"
 #include "hal_sleep.hpp"
 #include "hal_system.hpp"
+#include "hal_system_time.hpp"
+#include "hal_sntp.hpp"
 
 #include "solar_sensor.hpp"
 #include "farm_protocol_types.hpp"
@@ -25,6 +27,7 @@
 #include "espnow_ota_trigger.hpp"
 #include "espnow_manager.hpp"
 #include "wifi_manager.hpp"
+#include "time_manager.hpp"
 
 #include "secrets.hpp"
 
@@ -52,6 +55,8 @@ static idf_hals::GpioHAL hal_gpio;
 static idf_hals::HalFreertos hal_freertos;
 static idf_hals::SleepHAL hal_sleep;
 static idf_hals::SystemHAL hal_system;
+static idf_hals::HalSystemTime hal_sys_time;
+static idf_hals::HalSntp hal_sntp;
 
 // BatteryMonitor
 static battery_monitor::BatteryAdcConfig adc_config = {
@@ -94,6 +99,8 @@ static OtaManager ota_manager(ota_deps);
 static ButtonOtaTrigger btn_trigger(hal_gpio, hal_freertos, BOOT_BUTTON_GPIO, 200);
 static EspNowOtaTrigger espnow_ota_trigger;
 
+static time_manager::TimeManager time_mgr{hal_sntp, hal_sys_time};
+
 extern "C" void app_main()
 {
     ESP_LOGW(TAG, "Initializing Smart Farm Solar Sensor...");
@@ -117,7 +124,8 @@ extern "C" void app_main()
         rx_queue,
         wifi,
         hal_sleep,
-        hal_system);
+        hal_system,
+        time_mgr);
 
     // Initialize application state (enable remote logging for field tests)
 

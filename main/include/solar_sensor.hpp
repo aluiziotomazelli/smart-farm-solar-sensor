@@ -10,6 +10,7 @@
 #include "interfaces/i_espnow_manager.hpp"
 #include "interfaces/i_hal_sleep.hpp"
 #include "interfaces/i_hal_system.hpp"
+#include "interfaces/i_time_manager.hpp"
 
 #include "solar_sensor_stats.hpp"
 
@@ -29,8 +30,9 @@ public:
         espnow::IEspNowManager& espnow,
         QueueHandle_t rx_queue,
         wifi_manager::IWiFiManager& wifi,
-        idf_hals::ISleepHAL& hal_sleep_,
-        idf_hals::ISystemHAL& hal_system_);
+        idf_hals::ISleepHAL& hal_sleep,
+        idf_hals::ISystemHAL& hal_system,
+        time_manager::ITimeManager& time_manager);
 
     virtual ~SolarSensor() = default;
 
@@ -60,14 +62,16 @@ private:
     wifi_manager::IWiFiManager& wifi_;
     idf_hals::ISleepHAL& hal_sleep_;
     idf_hals::ISystemHAL& hal_system_;
+    time_manager::ITimeManager& time_manager_;
 
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
 
-    esp_err_t init_core_storage();
-    esp_err_t init_wifi();
-    esp_err_t init_espnow();
     esp_err_t init_ota();
+    esp_err_t init_wifi();
+    esp_err_t init_time();
+    esp_err_t init_core_storage();
+    esp_err_t init_espnow();
 
     void check_firmware();
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
