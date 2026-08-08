@@ -11,12 +11,18 @@ SolarSensor::SolarSensor(
     idf_hals::ITimerHAL& hal_timer,
     IOtaManager& ota_manager,
     IOtaTrigger& btn_trigger,
-    IOtaTrigger& espnow_trigger)
+    IOtaTrigger& espnow_trigger,
+    espnow::IEspNowManager& espnow,
+    QueueHandle_t rx_queue_,
+    wifi_manager::IWiFiManager& wifi)
     : core_storage_(core_storage)
     , hal_timer_(hal_timer)
     , ota_manager_(ota_manager)
     , btn_trigger_(btn_trigger)
     , espnow_trigger_(espnow_trigger)
+    , espnow_(espnow)
+    , rx_queue_(rx_queue_)
+    , wifi_(wifi)
 {
 }
 
@@ -53,4 +59,22 @@ void SolarSensor::save_persistent_state()
     // }
 
     last_nvs_commit_ts_ = now_ms;
+}
+
+esp_err_t SolarSensor::init()
+{
+    ESP_LOGI(TAG, "SolarSensor initialized");
+    return ESP_OK;
+}
+
+esp_err_t SolarSensor::run()
+{
+    ESP_LOGI(TAG, "SolarSensor running");
+    return ESP_OK;
+}
+
+void SolarSensor::on_ota_triggered(OtaTriggerSource source)
+{
+    ESP_LOGI(TAG, "OTA triggered from source: %d", static_cast<int>(source));
+    ota_triggered_.store(true);
 }

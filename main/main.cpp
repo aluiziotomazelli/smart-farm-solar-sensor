@@ -1,24 +1,31 @@
+#include <cstdint>
+
+#define LOG_LOCAL_LEVEL ESP_LOG_INFO
 #include "esp_log.h"
 
 #include "hal_timer.hpp"
-
-#include "battery_monitor.hpp"
-#include "adc_battery_reader.hpp"
+#include "hal_nvs.hpp"
+#include "hal_sys_rom.hpp"
+#include "hal_sys_rom.hpp"
 #include "hal_adc_oneshot.hpp"
 #include "hal_adc_calibration.hpp"
-
-#include "hal_sys_rom.hpp"
-#include "hal_system.hpp"
 #include "hal_gpio.hpp"
-#include "hal_nvs.hpp"
 #include "hal_freertos.hpp"
-#include "hal_sntp.hpp"
-#include "hal_system_time.hpp"
+#include "hal_sleep.hpp"
 
 #include "solar_sensor.hpp"
 #include "farm_protocol_types.hpp"
-#include "time_manager.hpp"
-#include <cstdint>
+#include "persistence_backend.hpp"
+#include "nvs_core.hpp"
+#include "battery_monitor.hpp"
+#include "adc_battery_reader.hpp"
+#include "ota_manager.hpp"
+#include "button_ota_trigger.hpp"
+#include "espnow_ota_trigger.hpp"
+#include "espnow_manager.hpp"
+#include "wifi_manager.hpp"
+
+#include "secrets.hpp"
 
 #include "freertos/ringbuf.h"
 #include "lwip/sockets.h"
@@ -36,12 +43,15 @@ static constexpr const char* STATS_NVS_KEY = "solar_stats";
 
 // HAL instances for sharing across components
 static idf_hals::TimerHAL hal_timer;
+static idf_hals::NvsHAL nvs_hal;
 static idf_hals::SysRomHAL hal_sys_rom;
+static idf_hals::HalAdcOneshot oneshot_hal;  // Batery monitor ADC
+static idf_hals::HalAdcCalibration cali_hal; // Batery monitor ADC
+static idf_hals::GpioHAL hal_gpio;
+static idf_hals::HalFreertos hal_freertos;
+static idf_hals::SleepHAL hal_sleep;
 
 // BatteryMonitor
-static idf_hals::HalAdcOneshot oneshot_hal;
-static idf_hals::HalAdcCalibration cali_hal;
-
 static battery_monitor::BatteryAdcConfig adc_config = {
     .gpio_num = static_cast<int>(BATTERY_LEVEL_GPIO),
     .sample_count = 16,
@@ -60,11 +70,6 @@ static RTC_DATA_ATTR CoreStorage g_rtc_core;
 static RtcBackend rtc_core_backend(&g_rtc_core, sizeof(CoreStorage));
 static NvsBackend nvs_core_backend{nvs_hal, CORE_NVS_KEY};
 static NvsCore nvs_core{rtc_core_backend, nvs_core_backend};
-
-static RTC_DATA_ATTR SolarStats g_rtc_tank;
-static RtcBackend rtc_stats_backend(&g_rtc_tank, sizeof(SolarStats));
-static NvsBackend nvs_stats_backend{nvs_hal, STATS_NVS_KEY};
-static SolarNvs nvs_solar{rtc_stats_backend, nvs_stats_backend};
 
 // OtaManager — HAL implementations
 static HttpClient http_client;
@@ -104,24 +109,19 @@ extern "C" void app_main()
     // hal_freertos.task_delay(pdMS_TO_TICKS(3000));
 
     // Create ESP-NOW receive queue
-    QueueHandle_t app_rx_queue = hal_freertos.queue_create(30, sizeof(espnow::AppMessage));
+    QueueHandle_t rx_queue = hal_freertos.queue_create(30, sizeof(espnow::AppMessage));
 
     // Retrieve singleton references for DI
     auto& wifi = wifi_manager::WiFiManager::get_instance();
     auto& espnow = espnow::EspNowManager::instance();
 
     // Instantiate app with dependencies
-    SolarSensorApp app(nvs_core, hal_timer, ota_manager, btn_trigger, espnow_ota_trigger);
+    SolarSensor solar(nvs_core, hal_timer, ota_manager, btn_trigger, espnow_ota_trigger, espnow, rx_queue, wifi);
 
     // Initialize application state (enable remote logging for field tests)
 
-    if (app.init(IS_LOGGING) != ESP_OK) {
-        ESP_LOGE(TAG, "Critical hardware/application initialization failure. Entering safe deep sleep for 1 minute.");
-        sleep_hw.enable_timer_wakeup(1ULL * 60ULL * 1000ULL * 1000ULL);
-        sleep_hw.deep_sleep_start();
-        return;
-    }
+    solar.init();
 
     // Run the main application flow in a loop if not sleeping
-    app.run()
+    solar.run();
 }

@@ -4,6 +4,7 @@ idf_component_register(
         "src/solar_sensor.cpp"
     INCLUDE_DIRS
         "include"
+        "include/interfaces"
         "."
     REQUIRES
         smart-farm-common
