@@ -10,10 +10,14 @@ endif()
 
 # Add paths for components (submodules and shared components)
 list(APPEND EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_LIST_DIR}/components/idf_hals"
     "${CMAKE_CURRENT_LIST_DIR}/components/smart-farm-common"
     "${CMAKE_CURRENT_LIST_DIR}/components/espnow_manager"
     "${CMAKE_CURRENT_LIST_DIR}/components/wifi_manager"
     "${CMAKE_CURRENT_LIST_DIR}/components/ota_manager"
+    "${CMAKE_CURRENT_LIST_DIR}/components/time_manager"
+    
+
 )
 
 # Include the ESP-IDF framework

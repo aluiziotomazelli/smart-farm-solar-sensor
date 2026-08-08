@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "src/solar_sensor.cpp"
+    INCLUDE_DIRS
+        "include"
+        "."
+    REQUIRES
+        smart-farm-common
+        espnow_manager
+        wifi_manager
+        ota_manager
+        time_manager
+        battery_monitor
+        idf_hals
+)
