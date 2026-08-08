@@ -8,6 +8,8 @@
 #include "interfaces/i_ota_trigger.hpp"
 #include "interfaces/i_wifi_manager.hpp"
 #include "interfaces/i_espnow_manager.hpp"
+#include "interfaces/i_hal_sleep.hpp"
+#include "interfaces/i_hal_system.hpp"
 
 #include "solar_sensor_stats.hpp"
 
@@ -26,7 +28,10 @@ public:
         IOtaTrigger& espnow_trigger,
         espnow::IEspNowManager& espnow,
         QueueHandle_t rx_queue,
-        wifi_manager::IWiFiManager& wifi);
+        wifi_manager::IWiFiManager& wifi,
+        idf_hals::ISleepHAL& hal_sleep_,
+        idf_hals::ISystemHAL& hal_system_);
+
     virtual ~SolarSensor() = default;
 
     esp_err_t init();
@@ -53,9 +58,16 @@ private:
     espnow::IEspNowManager& espnow_;
     QueueHandle_t rx_queue_;
     wifi_manager::IWiFiManager& wifi_;
+    idf_hals::ISleepHAL& hal_sleep_;
+    idf_hals::ISystemHAL& hal_system_;
 
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
+
+    esp_err_t init_core_storage();
+    esp_err_t init_wifi();
+    esp_err_t init_espnow();
+    esp_err_t init_ota();
 
     void save_persistent_state();
 };

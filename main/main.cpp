@@ -12,6 +12,7 @@
 #include "hal_gpio.hpp"
 #include "hal_freertos.hpp"
 #include "hal_sleep.hpp"
+#include "hal_system.hpp"
 
 #include "solar_sensor.hpp"
 #include "farm_protocol_types.hpp"
@@ -50,6 +51,7 @@ static idf_hals::HalAdcCalibration cali_hal; // Batery monitor ADC
 static idf_hals::GpioHAL hal_gpio;
 static idf_hals::HalFreertos hal_freertos;
 static idf_hals::SleepHAL hal_sleep;
+static idf_hals::SystemHAL hal_system;
 
 // BatteryMonitor
 static battery_monitor::BatteryAdcConfig adc_config = {
@@ -86,17 +88,6 @@ static OtaDependencies ota_deps = {
     .task_scheduler = task_scheduler,
     .rollback_manager = rollback_manager,
 };
-
-static OtaConfig ota_config{
-    .device_type = "water_tank",
-    .manifest_url = SERVER_URL,
-    .task_stack_size = 8192,
-    .task_priority = 5,
-    .transport = {.manifest_timeout_ms = 30000, .firmware_timeout_ms = 30000},
-    .security = {.allow_http_during_development = true},
-    .allow_same_version = false,
-    .restart_on_success = false,
-};
 static OtaManager ota_manager(ota_deps);
 
 // OTA triggers: boot button + espnow
@@ -116,7 +107,17 @@ extern "C" void app_main()
     auto& espnow = espnow::EspNowManager::instance();
 
     // Instantiate app with dependencies
-    SolarSensor solar(nvs_core, hal_timer, ota_manager, btn_trigger, espnow_ota_trigger, espnow, rx_queue, wifi);
+    SolarSensor solar(
+        nvs_core,
+        hal_timer,
+        ota_manager,
+        btn_trigger,
+        espnow_ota_trigger,
+        espnow,
+        rx_queue,
+        wifi,
+        hal_sleep,
+        hal_system);
 
     // Initialize application state (enable remote logging for field tests)
 
