@@ -1,0 +1,18 @@
+# =============================================================================
+# Development / Testing Build Defaults - Smart Farm Water Tank
+# =============================================================================
+
+# 1. Compiler Optimization (Debug / -Og)
+CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
+# CONFIG_COMPILER_OPTIMIZATION_SIZE is not set
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y
+
+# 2. Logging & Console (Verbose INFO level for testing)
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3
+CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y
+CONFIG_BOOTLOADER_LOG_LEVEL=3
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# 3. Security & OTA
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y

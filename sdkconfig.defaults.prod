@@ -1,0 +1,25 @@
+# =============================================================================
+# Production Build Defaults - Smart Farm Water Tank
+# =============================================================================
+
+# 1. Compiler Optimization for Size (-Os)
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# CONFIG_COMPILER_OPTIMIZATION_DEBUG is not set
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+
+# 2. Logging & Console (WARN Level & No Console Output)
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+# CONFIG_LOG_DEFAULT_LEVEL_INFO is not set
+CONFIG_LOG_DEFAULT_LEVEL=2
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+# CONFIG_BOOTLOADER_LOG_LEVEL_INFO is not set
+CONFIG_BOOTLOADER_LOG_LEVEL=2
+CONFIG_ESP_CONSOLE_NONE=y
+# CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG is not set
+CONFIG_LOG_COLORS=n
+
+# 3. PHY Radio TX Power (Commented out reference - max power active for field reach)
+# CONFIG_ESP_PHY_MAX_TX_POWER=72
+
+# 4. Security & OTA (HTTP kept enabled for rural local OTA setup)
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
