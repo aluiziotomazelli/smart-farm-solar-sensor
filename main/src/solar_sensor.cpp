@@ -9,6 +9,8 @@
 static const char* TAG = "SolarSensor";
 
 SolarSensor::SolarSensor(
+    ina::IInaSensorTask& ina_sensor_task,
+    QueueHandle_t ina_sample_queue,
     INvsCore& core_storage,
     ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
@@ -22,7 +24,9 @@ SolarSensor::SolarSensor(
     idf_hals::ISystemHAL& hal_system,
     time_manager::ITimeManager& time_manager,
     idf_hals::IHalFreertos& hal_freertos)
-    : core_storage_(core_storage)
+    : ina_sensor_task_(ina_sensor_task)
+    , ina_sample_queue_(ina_sample_queue)
+    , core_storage_(core_storage)
     , solar_storage_(solar_storage)
     , hal_timer_(hal_timer)
     , ota_manager_(ota_manager)
@@ -79,7 +83,13 @@ esp_err_t SolarSensor::init()
         session_healthy_ = false;
     }
 
-    // Roolback if session is not healthy
+    // 5. Initialize INA sensor task
+    if ((err = init_ina_task()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize INA Sensor Task: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // Rollback if session is not healthy
     if (!session_healthy_) {
         if (pending_firmware_verify_) {
             ESP_LOGE(TAG, "Session not healthy during OTA verification");
@@ -232,12 +242,12 @@ void SolarSensor::save_persistent_state()
         ESP_LOGE(TAG, "Failed to save stats to core storage");
     }
 
-    // if (solar_storage_.save_app_data(stats_, force_node) == ESP_OK) {
-    //     pending_solar_commit_ = false;
-    // }
-    // else {
-    //     ESP_LOGE(TAG, "Failed to save stats to solar storage");
-    // }
+    if (solar_storage_.save_app_data(stats_, force_node) == ESP_OK) {
+        pending_solar_commit_ = false;
+    }
+    else {
+        ESP_LOGE(TAG, "Failed to save stats to solar storage");
+    }
 
     last_nvs_commit_ts_ = now_ms;
 }
@@ -329,4 +339,51 @@ esp_err_t SolarSensor::connect_wifi_with_retry(uint8_t max_attempts)
 
     ESP_LOGE(TAG, "Failed to connect to WiFi after %u attempts: %s", max_attempts, esp_err_to_name(err));
     return err;
+}
+
+esp_err_t SolarSensor::init_ina_task()
+{
+    InaSensorConfig config{};
+    config.sample_interval_ms = 125;
+    config.delta_threshold_ma = 10;
+    config.delta_threshold_percent = 0.03f;
+    config.heartbeat_interval_ms = 1000;
+
+    esp_err_t err = ina_sensor_task_.init(config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize INA Sensor Task config: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ina_sensor_task_.start();
+}
+
+void SolarSensor::process_ina_samples()
+{
+    if (ina_sample_queue_ == nullptr) {
+        return;
+    }
+
+    InaSample sample{};
+    if (hal_rtos_.queue_receive(ina_sample_queue_, &sample, pdMS_TO_TICKS(2000)) == pdTRUE) {
+        if (sample.status != ESP_OK) {
+            consecutive_ina_errors_++;
+            ESP_LOGW(TAG, "Received INA sample error status: %s (consecutive=%u)",
+                     esp_err_to_name(sample.status), consecutive_ina_errors_);
+            if (consecutive_ina_errors_ >= 5) {
+                ESP_LOGE(TAG, "5 consecutive INA errors! Resetting system...");
+                hal_system_.restart();
+            }
+            return;
+        }
+
+        consecutive_ina_errors_ = 0;
+        if (sample.isc_current_ma > stats_.max_current_ma) {
+            stats_.max_current_ma = sample.isc_current_ma;
+            pending_solar_commit_ = true;
+        }
+    } else {
+        ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>2s without sample)! Resetting system...");
+        hal_system_.restart();
+    }
 }

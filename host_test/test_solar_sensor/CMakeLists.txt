@@ -10,6 +10,8 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "../../components/idf_hals"
     "../../components/ota_manager"
     "../../components/time_manager"
+    "../../components/power_control"
+    "../../components/ina226_driver"
     "../mocks"
     "../gtest"
     
@@ -27,6 +29,8 @@ set(COMPONENTS
     "idf_hals"
     "ota_manager"
     "time_manager"
+    "power_control"
+    "ina226_driver"
     "udp_logger"
     "wifi_manager"
     "esp_timer"

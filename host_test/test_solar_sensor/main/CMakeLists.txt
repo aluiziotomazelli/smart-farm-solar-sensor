@@ -2,7 +2,11 @@ idf_component_register(
     SRCS 
         "main.cpp"
         "test_solar_sensor.cpp"
+        "test_solar_sensor_nvs.cpp"
+        "test_ina_sensor_task.cpp"
         "../../../main/src/solar_sensor.cpp"
+        "../../../main/src/solar_sensor_nvs.cpp"
+        "../../../main/src/ina_sensor_task.cpp"
     INCLUDE_DIRS 
         "."
         "../../mocks"
@@ -10,6 +14,10 @@ idf_component_register(
         "../../../main"
         "../../../components/smart-farm-common/host_test/common"
         "../../../components/idf_hals/mocks"
+        "../../../components/power_control/include"
+        "../../../components/power_control/include/interfaces"
+        "../../../components/ina226_driver/include"
+        "../../../components/ina226_driver/include/interfaces"
     REQUIRES 
         gtest
         smart-farm-common
@@ -18,6 +26,8 @@ idf_component_register(
         idf_hals
         ota_manager
         time_manager
+        power_control
+        ina226_driver
         WHOLE_ARCHIVE
 )
 

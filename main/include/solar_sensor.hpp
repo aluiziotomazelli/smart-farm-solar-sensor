@@ -14,6 +14,8 @@
 #include "interfaces/i_time_manager.hpp"
 #include "interfaces/i_hal_freertos.hpp"
 
+#include "interfaces/i_ina_sensor_task.hpp"
+
 #include "solar_sensor_stats.hpp"
 
 /**
@@ -24,6 +26,8 @@ class SolarSensor : public IOtaTriggerListener
 {
 public:
     SolarSensor(
+        ina::IInaSensorTask& ina_sensor_task,
+        QueueHandle_t ina_sample_queue,
         INvsCore& core_storage,
         ISolarSensorNvs& solar_storage,
         idf_hals::ITimerHAL& hal_timer,
@@ -56,6 +60,8 @@ protected:
     bool pending_solar_commit_ = false;
 
 private:
+    ina::IInaSensorTask& ina_sensor_task_;
+    QueueHandle_t ina_sample_queue_;
     INvsCore& core_storage_;
     ISolarSensorNvs& solar_storage_;
     idf_hals::ITimerHAL& hal_timer_;
@@ -72,7 +78,9 @@ private:
 
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
+    uint8_t consecutive_ina_errors_ = 0;
 
+    esp_err_t init_ina_task();
     esp_err_t init_ota();
     esp_err_t init_wifi();
     esp_err_t init_time();
@@ -84,4 +92,5 @@ private:
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
     esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     void save_persistent_state();
+    void process_ina_samples();
 };
