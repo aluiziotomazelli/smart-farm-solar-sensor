@@ -30,6 +30,11 @@
 #include "wifi_manager.hpp"
 #include "time_manager.hpp"
 
+#include "hal_i2c.hpp"
+#include "power_control.hpp"
+#include "ina226_driver.hpp"
+#include "ina_sensor_task.hpp"
+
 #include "secrets.hpp"
 
 #include "freertos/ringbuf.h"
@@ -41,7 +46,10 @@ static constexpr bool IS_LOGGING = false;
 
 // Production Configuration for XIAO-ESP32-C3 Mini Board
 static constexpr gpio_num_t BATTERY_LEVEL_GPIO = GPIO_NUM_3; // D1
-static constexpr gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_9;   // Boot button has no external pad
+static constexpr gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_9;   // Boot button
+static constexpr gpio_num_t INA_VCC_GPIO = GPIO_NUM_5;        // D3 - INA VCC Power Control
+static constexpr gpio_num_t I2C_SDA_GPIO = GPIO_NUM_6;        // D4
+static constexpr gpio_num_t I2C_SCL_GPIO = GPIO_NUM_7;        // D5
 
 static constexpr const char* CORE_NVS_KEY = "core";
 static constexpr const char* STATS_NVS_KEY = "solar_stats";
@@ -53,11 +61,16 @@ static idf_hals::SysRomHAL hal_sys_rom;
 static idf_hals::HalAdcOneshot hal_oneshot;  // Batery monitor ADC
 static idf_hals::HalAdcCalibration hal_cali; // Batery monitor ADC
 static idf_hals::GpioHAL hal_gpio;
+static idf_hals::I2cHAL hal_i2c;
 static idf_hals::HalFreertos hal_freertos;
 static idf_hals::SleepHAL hal_sleep;
 static idf_hals::SystemHAL hal_system;
 static idf_hals::HalSystemTime hal_sys_time;
 static idf_hals::HalSntp hal_sntp;
+
+// INA226 Power Control & Driver
+static power_control::PowerControl ina_power_control{hal_gpio, INA_VCC_GPIO, /*inverted_logic=*/false, /*initial_on=*/false};
+static ina226::Ina226Driver ina_driver{hal_i2c};
 
 // BatteryMonitor
 static battery_monitor::BatteryAdcConfig adc_config = {
@@ -110,17 +123,39 @@ static time_manager::TimeManager time_mgr{hal_sntp, hal_sys_time};
 extern "C" void app_main()
 {
     ESP_LOGW(TAG, "Initializing Smart Farm Solar Sensor...");
-    // hal_freertos.task_delay(pdMS_TO_TICKS(3000));
 
-    // Create ESP-NOW receive queue
+    // Create ESP-NOW receive queue & INA sample queue
     QueueHandle_t rx_queue = hal_freertos.queue_create(30, sizeof(espnow::AppMessage));
+    QueueHandle_t ina_sample_queue = hal_freertos.queue_create(10, sizeof(InaSample));
 
     // Retrieve singleton references for DI
     auto& wifi = wifi_manager::WiFiManager::get_instance();
     auto& espnow = espnow::EspNowManager::instance();
 
+    // Initialize I2C Bus Master
+    i2c_master_bus_config_t bus_cfg = {};
+    bus_cfg.i2c_port = I2C_NUM_0;
+    bus_cfg.sda_io_num = I2C_SDA_GPIO;
+    bus_cfg.scl_io_num = I2C_SCL_GPIO;
+    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
+    bus_cfg.glitch_ignore_cnt = 7;
+    bus_cfg.flags.enable_internal_pullup = true;
+
+    i2c_master_bus_handle_t i2c_bus_handle = nullptr;
+    esp_err_t i2c_err = hal_i2c.new_master_bus(&bus_cfg, &i2c_bus_handle);
+    if (i2c_err == ESP_OK) {
+        ina_driver.init(i2c_bus_handle);
+    } else {
+        ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(i2c_err));
+    }
+
+    // Instantiate INA Sensor Task
+    ina::InaSensorTask ina_task{ina_driver, ina_power_control, espnow, hal_timer, hal_freertos, ina_sample_queue};
+
     // Instantiate app with dependencies
     SolarSensor solar(
+        ina_task,
+        ina_sample_queue,
         nvs_core,
         nvs_solar,
         hal_timer,
@@ -135,8 +170,7 @@ extern "C" void app_main()
         time_mgr,
         hal_freertos);
 
-    // Initialize application state (enable remote logging for field tests)
-
+    // Initialize application state
     solar.init();
 
     // Run the main application flow in a loop if not sleeping

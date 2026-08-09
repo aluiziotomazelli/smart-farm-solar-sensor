@@ -3,6 +3,7 @@ idf_component_register(
         "main.cpp"
         "src/solar_sensor.cpp"
         "src/solar_sensor_nvs.cpp"
+        "src/ina_sensor_task.cpp"
     INCLUDE_DIRS
         "include"
         "include/interfaces"
@@ -15,4 +16,6 @@ idf_component_register(
         time_manager
         battery_monitor
         idf_hals
+        power_control
+        ina226_driver
 )
