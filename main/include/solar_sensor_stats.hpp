@@ -40,10 +40,9 @@ struct SolarStats
 
     bool operator==(const SolarStats& other) const
     {
-        return magic == other.magic && version == other.version && my_node_metadata == other.my_node_metadata &&
-               gpio_wakeup_enabled == other.gpio_wakeup_enabled && last_battery_mv == other.last_battery_mv &&
-               last_battery_percent == other.last_battery_percent && last_battery_state == other.last_battery_state &&
-               crc == other.crc;
+        return magic == other.magic && version == other.version && gpio_wakeup_enabled == other.gpio_wakeup_enabled &&
+               last_battery_mv == other.last_battery_mv && last_battery_percent == other.last_battery_percent &&
+               last_battery_state == other.last_battery_state && crc == other.crc;
     }
 
     bool operator!=(const SolarStats& other) const { return !(*this == other); }
