@@ -1,7 +1,9 @@
 // main/src/ina_sensor_task.cpp
 #include "ina_sensor_task.hpp"
 
+#include <algorithm>
 #include <cmath>
+
 #define LOG_LOCAL_LEVEL ESP_LOG_INFO
 #include "esp_log.h"
 #include "farm_protocol_types.hpp"
@@ -104,6 +106,23 @@ esp_err_t InaSensorTask::set_operating_mode(SolarNodeState mode)
     }
 
     return err;
+}
+
+uint32_t InaSensorTask::get_expected_sample_period_ms() const
+{
+    const auto& mode_cfg = (mode_ == SolarNodeState::DAY_ACTIVE) ? config_.day_config : config_.night_config;
+
+    uint32_t vsh_us = ina226::conversion_time_to_us(mode_cfg.vsh_ct);
+    uint32_t vbus_us = ina226::conversion_time_to_us(mode_cfg.vbus_ct);
+    uint32_t avg_count = ina226::averaging_mode_to_count(mode_cfg.avg_mode);
+
+    return ((vsh_us + vbus_us) * avg_count) / 1000;
+}
+
+uint32_t InaSensorTask::get_watchdog_timeout_ms() const
+{
+    uint32_t period_ms = get_expected_sample_period_ms();
+    return std::max<uint32_t>(500, period_ms * 3);
 }
 
 esp_err_t InaSensorTask::hard_reset_ina_power()

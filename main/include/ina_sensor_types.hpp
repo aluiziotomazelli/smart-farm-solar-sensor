@@ -4,6 +4,18 @@
 #include "esp_err.h"
 #include "ina226_types.hpp"
 
+/**
+ * @brief Default Shunt Over Voltage raw threshold for dawn wakeup detection.
+ *
+ * Calculation:
+ *   - Shunt resistor: R_shunt = 0.1 Ohm (100 mOhm)
+ *   - Target dawn wakeup current: I_dawn = ~0.3 mA (300 uA)
+ *   - Shunt Voltage: V_sh = I_dawn * R_shunt = 300 uA * 0.1 Ohm = 30 uV
+ *   - INA226 Shunt Voltage LSB: 2.5 uV per LSB
+ *   - Raw ALERT_LIMIT = 30 uV / 2.5 uV = 12
+ */
+static constexpr uint16_t DEFAULT_DAWN_WAKEUP_ALERT_LIMIT = 12;
+
 struct InaSample
 {
     uint16_t isc_current_ma{0};   ///< Instantaneous short-circuit current in mA
@@ -46,6 +58,6 @@ struct InaSensorConfig
         ina226::ConversionTime::CT_8244US,
         ina226::AveragingMode::AVG_64,
         ina226::AlertFlag::SHUNT_OVER_VOLTAGE,
-        12
+        DEFAULT_DAWN_WAKEUP_ALERT_LIMIT
     };
 };

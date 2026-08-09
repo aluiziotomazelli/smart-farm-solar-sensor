@@ -179,3 +179,21 @@ TEST_F(InaSensorTaskTest, SetOperatingModeNightSleepConfiguresAlertShuntOverVolt
     EXPECT_EQ(sut_->get_operating_mode(), SolarNodeState::NIGHT_SLEEP);
     EXPECT_FALSE(sut_->is_sampling_enabled());
 }
+
+TEST_F(InaSensorTaskTest, DynamicSamplePeriodAndWatchdogTimeoutCalculation)
+{
+    InaSensorConfig config{};
+    config.day_config.vsh_ct = ConversionTime::CT_1100US;
+    config.day_config.vbus_ct = ConversionTime::CT_1100US;
+    config.day_config.avg_mode = AveragingMode::AVG_64;
+
+    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
+    sut_->init(config);
+
+    // Period: (1100 + 1100) * 64 / 1000 = 140 ms
+    EXPECT_EQ(sut_->get_expected_sample_period_ms(), 140u);
+    // Timeout: max(500, 140 * 3) = 500 ms
+    EXPECT_EQ(sut_->get_watchdog_timeout_ms(), 500u);
+}

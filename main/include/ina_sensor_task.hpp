@@ -31,6 +31,9 @@ public:
     void set_sampling_enabled(bool enabled) override { sampling_enabled_.store(enabled); }
     esp_err_t set_operating_mode(SolarNodeState mode) override;
 
+    uint32_t get_expected_sample_period_ms() const override;
+    uint32_t get_watchdog_timeout_ms() const override;
+
     esp_err_t hard_reset_ina_power() override;
 
     /**
@@ -40,7 +43,7 @@ public:
 
     bool is_reporting_enabled() const { return reporting_enabled_.load(); }
     bool is_sampling_enabled() const { return sampling_enabled_.load(); }
-    SolarNodeState get_operating_mode() const { return mode_; }
+    SolarNodeState get_operating_mode() const override { return mode_; }
 
 private:
     ina226::IIna226Driver& driver_;

@@ -364,8 +364,11 @@ void SolarSensor::process_ina_samples()
         return;
     }
 
+    bool is_daytime = (ina_sensor_task_.get_operating_mode() == SolarNodeState::DAY_ACTIVE);
+    uint32_t timeout_ms = is_daytime ? ina_sensor_task_.get_watchdog_timeout_ms() : 0;
+
     InaSample sample{};
-    if (hal_rtos_.queue_receive(ina_sample_queue_, &sample, pdMS_TO_TICKS(2000)) == pdTRUE) {
+    if (hal_rtos_.queue_receive(ina_sample_queue_, &sample, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
         if (sample.status != ESP_OK) {
             consecutive_ina_errors_++;
             ESP_LOGW(TAG, "Received INA sample error status: %s (consecutive=%u)",
@@ -382,8 +385,8 @@ void SolarSensor::process_ina_samples()
             stats_.max_current_ma = sample.isc_current_ma;
             pending_solar_commit_ = true;
         }
-    } else {
-        ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>2s without sample)! Resetting system...");
+    } else if (is_daytime) {
+        ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>%ums without sample)! Resetting system...", timeout_ms);
         hal_system_.restart();
     }
 }
