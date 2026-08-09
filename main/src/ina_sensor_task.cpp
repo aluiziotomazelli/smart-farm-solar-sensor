@@ -70,6 +70,38 @@ void InaSensorTask::stop()
     running_.store(false);
 }
 
+esp_err_t InaSensorTask::set_operating_mode(SolarNodeState mode)
+{
+    mode_ = mode;
+    esp_err_t err = ESP_OK;
+
+    switch (mode) {
+    case SolarNodeState::DAY_ACTIVE:
+        // Conversion Ready (CVRF) mode for active sampling
+        err = driver_.configure_alert(
+            static_cast<uint16_t>(ina226::AlertFlag::CONVERSION_READY), 0);
+        sampling_enabled_.store(true);
+        ESP_LOGI(TAG, "InaSensorTask set to DAY_ACTIVE (Alert: Conversion Ready)");
+        break;
+
+    case SolarNodeState::NIGHT_SLEEP:
+        // Shunt Over Voltage (SOL) mode for dawn wakeup
+        // 0.3mA through 0.1 Ohm = 30uV (1 LSB = 2.5uV -> 30uV / 2.5 = 12)
+        err = driver_.configure_alert(
+            static_cast<uint16_t>(ina226::AlertFlag::SHUNT_OVER_VOLTAGE), 12);
+        sampling_enabled_.store(false);
+        ESP_LOGI(TAG, "InaSensorTask set to NIGHT_SLEEP (Alert: Shunt Over Voltage, limit=12)");
+        break;
+
+    case SolarNodeState::OTA_UPDATE:
+        sampling_enabled_.store(false);
+        ESP_LOGI(TAG, "InaSensorTask set to OTA_UPDATE (Sampling paused)");
+        break;
+    }
+
+    return err;
+}
+
 esp_err_t InaSensorTask::hard_reset_ina_power()
 {
     ESP_LOGW(TAG, "Performing INA226 hardware power cycle (50ms off)...");

@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include "ina_sensor_types.hpp"
+#include "solar_sensor_types.hpp"
 
 namespace ina {
 
@@ -16,6 +17,7 @@ public:
 
     virtual void set_reporting_enabled(bool enabled) = 0;
     virtual void set_sampling_enabled(bool enabled) = 0;
+    virtual esp_err_t set_operating_mode(SolarNodeState mode) = 0;
 
     virtual esp_err_t hard_reset_ina_power() = 0;
 };

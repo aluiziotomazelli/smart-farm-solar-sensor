@@ -29,6 +29,7 @@ public:
 
     void set_reporting_enabled(bool enabled) override { reporting_enabled_.store(enabled); }
     void set_sampling_enabled(bool enabled) override { sampling_enabled_.store(enabled); }
+    esp_err_t set_operating_mode(SolarNodeState mode) override;
 
     esp_err_t hard_reset_ina_power() override;
 
@@ -39,6 +40,7 @@ public:
 
     bool is_reporting_enabled() const { return reporting_enabled_.load(); }
     bool is_sampling_enabled() const { return sampling_enabled_.load(); }
+    SolarNodeState get_operating_mode() const { return mode_; }
 
 private:
     ina226::IIna226Driver& driver_;
@@ -49,6 +51,7 @@ private:
     QueueHandle_t sample_queue_;
 
     InaSensorConfig config_{};
+    SolarNodeState mode_{SolarNodeState::DAY_ACTIVE};
     std::atomic<bool> reporting_enabled_{true};
     std::atomic<bool> sampling_enabled_{true};
     std::atomic<bool> running_{false};

@@ -159,3 +159,23 @@ TEST_F(InaSensorTaskTest, ConsecutiveI2cErrorsTriggerHardReset)
 
     sut_->process_cycle();
 }
+
+TEST_F(InaSensorTaskTest, SetOperatingModeDayActiveConfiguresAlertConversionReady)
+{
+    EXPECT_CALL(mock_driver_, configure_alert(static_cast<uint16_t>(AlertFlag::CONVERSION_READY), 0))
+        .WillOnce(Return(ESP_OK));
+
+    EXPECT_EQ(sut_->set_operating_mode(SolarNodeState::DAY_ACTIVE), ESP_OK);
+    EXPECT_EQ(sut_->get_operating_mode(), SolarNodeState::DAY_ACTIVE);
+    EXPECT_TRUE(sut_->is_sampling_enabled());
+}
+
+TEST_F(InaSensorTaskTest, SetOperatingModeNightSleepConfiguresAlertShuntOverVoltage)
+{
+    EXPECT_CALL(mock_driver_, configure_alert(static_cast<uint16_t>(AlertFlag::SHUNT_OVER_VOLTAGE), 12))
+        .WillOnce(Return(ESP_OK));
+
+    EXPECT_EQ(sut_->set_operating_mode(SolarNodeState::NIGHT_SLEEP), ESP_OK);
+    EXPECT_EQ(sut_->get_operating_mode(), SolarNodeState::NIGHT_SLEEP);
+    EXPECT_FALSE(sut_->is_sampling_enabled());
+}

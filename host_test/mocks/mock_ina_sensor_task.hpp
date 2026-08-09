@@ -13,6 +13,7 @@ public:
     MOCK_METHOD(void, stop, (), (override));
     MOCK_METHOD(void, set_reporting_enabled, (bool enabled), (override));
     MOCK_METHOD(void, set_sampling_enabled, (bool enabled), (override));
+    MOCK_METHOD(esp_err_t, set_operating_mode, (SolarNodeState mode), (override));
     MOCK_METHOD(esp_err_t, hard_reset_ina_power, (), (override));
 };
 
