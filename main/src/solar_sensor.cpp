@@ -10,6 +10,7 @@ static const char* TAG = "SolarSensor";
 
 SolarSensor::SolarSensor(
     INvsCore& core_storage,
+    ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
     IOtaManager& ota_manager,
     IOtaTrigger& btn_trigger,
@@ -22,6 +23,7 @@ SolarSensor::SolarSensor(
     time_manager::ITimeManager& time_manager,
     idf_hals::IHalFreertos& hal_freertos)
     : core_storage_(core_storage)
+    , solar_storage_(solar_storage)
     , hal_timer_(hal_timer)
     , ota_manager_(ota_manager)
     , btn_trigger_(btn_trigger)
@@ -64,6 +66,10 @@ esp_err_t SolarSensor::init()
     // 3. Initialize storage
     if ((err = init_core_storage()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize core storage: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+    if ((err = init_solar_storage()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize solar storage: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
@@ -165,6 +171,25 @@ esp_err_t SolarSensor::init_core_storage()
 
     return core_storage_.init(
         core_, default_core, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+}
+
+esp_err_t SolarSensor::init_solar_storage()
+{
+    esp_err_t ret = solar_storage_.load_app_data(stats_);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Loaded solar stats from storage");
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "Solar storage load failed (%s), recreating default storage", esp_err_to_name(ret));
+    stats_.reset();
+    ret = solar_storage_.save_app_data(stats_, /*force_nvs_commit=*/true);
+    if (ret == ESP_OK) {
+        return ESP_OK;
+    }
+
+    ESP_LOGE(TAG, "Failed to initialize solar storage: %s", esp_err_to_name(ret));
+    return ret;
 }
 
 esp_err_t SolarSensor::init_espnow()

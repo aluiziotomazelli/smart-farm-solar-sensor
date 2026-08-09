@@ -20,6 +20,7 @@
 #include "farm_protocol_types.hpp"
 #include "persistence_backend.hpp"
 #include "nvs_core.hpp"
+#include "solar_sensor_nvs.hpp"
 #include "battery_monitor.hpp"
 #include "adc_battery_reader.hpp"
 #include "ota_manager.hpp"
@@ -78,6 +79,11 @@ static RtcBackend rtc_core_backend(&g_rtc_core, sizeof(CoreStorage));
 static NvsBackend nvs_core_backend{nvs_hal, CORE_NVS_KEY};
 static NvsCore nvs_core{rtc_core_backend, nvs_core_backend};
 
+static RTC_DATA_ATTR SolarStats g_rtc_stats;
+static RtcBackend rtc_stats_backend(&g_rtc_stats, sizeof(SolarStats));
+static NvsBackend nvs_stats_backend{nvs_hal, STATS_NVS_KEY};
+static SolarSensorNvs nvs_solar{rtc_stats_backend, nvs_stats_backend};
+
 // OtaManager — HAL implementations
 static HttpClient http_client;
 static ManifestParser manifest_parser;
@@ -116,6 +122,7 @@ extern "C" void app_main()
     // Instantiate app with dependencies
     SolarSensor solar(
         nvs_core,
+        nvs_solar,
         hal_timer,
         ota_manager,
         btn_trigger,

@@ -3,6 +3,7 @@
 #include <atomic>
 
 #include "interfaces/i_nvs_core.hpp"
+#include "interfaces/i_solar_sensor_nvs.hpp"
 #include "interfaces/i_hal_timer.hpp"
 #include "interfaces/i_ota_manager.hpp"
 #include "interfaces/i_ota_trigger.hpp"
@@ -24,6 +25,7 @@ class SolarSensor : public IOtaTriggerListener
 public:
     SolarSensor(
         INvsCore& core_storage,
+        ISolarSensorNvs& solar_storage,
         idf_hals::ITimerHAL& hal_timer,
         IOtaManager& ota_manager,
         IOtaTrigger& btn_trigger,
@@ -55,6 +57,7 @@ protected:
 
 private:
     INvsCore& core_storage_;
+    ISolarSensorNvs& solar_storage_;
     idf_hals::ITimerHAL& hal_timer_;
     IOtaManager& ota_manager_;
     IOtaTrigger& btn_trigger_;
@@ -74,6 +77,7 @@ private:
     esp_err_t init_wifi();
     esp_err_t init_time();
     esp_err_t init_core_storage();
+    esp_err_t init_solar_storage();
     esp_err_t init_espnow();
 
     void check_firmware();

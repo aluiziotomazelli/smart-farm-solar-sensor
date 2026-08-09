@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.cpp"
         "src/solar_sensor.cpp"
+        "src/solar_sensor_nvs.cpp"
     INCLUDE_DIRS
         "include"
         "include/interfaces"
