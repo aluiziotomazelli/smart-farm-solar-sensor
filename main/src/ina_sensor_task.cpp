@@ -76,25 +76,29 @@ esp_err_t InaSensorTask::set_operating_mode(SolarNodeState mode)
     esp_err_t err = ESP_OK;
 
     switch (mode) {
-    case SolarNodeState::DAY_ACTIVE:
-        // Conversion Ready (CVRF) mode for active sampling
-        err = driver_.configure_alert(
-            static_cast<uint16_t>(ina226::AlertFlag::CONVERSION_READY), 0);
+    case SolarNodeState::DAY_ACTIVE: {
+        const auto& cfg = config_.day_config;
+        err = driver_.configure_alert(static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
         sampling_enabled_.store(true);
-        ESP_LOGI(TAG, "InaSensorTask set to DAY_ACTIVE (Alert: Conversion Ready)");
+        reporting_enabled_.store(true);
+        ESP_LOGI(TAG, "InaSensorTask set to DAY_ACTIVE (AlertFlag: 0x%04X, limit: %u)",
+                 static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
         break;
+    }
 
-    case SolarNodeState::NIGHT_SLEEP:
-        // Shunt Over Voltage (SOL) mode for dawn wakeup
-        // 0.3mA through 0.1 Ohm = 30uV (1 LSB = 2.5uV -> 30uV / 2.5 = 12)
-        err = driver_.configure_alert(
-            static_cast<uint16_t>(ina226::AlertFlag::SHUNT_OVER_VOLTAGE), 12);
+    case SolarNodeState::NIGHT_SLEEP: {
+        const auto& cfg = config_.night_config;
+        err = driver_.configure_alert(static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
         sampling_enabled_.store(false);
-        ESP_LOGI(TAG, "InaSensorTask set to NIGHT_SLEEP (Alert: Shunt Over Voltage, limit=12)");
+        reporting_enabled_.store(false);
+        ESP_LOGI(TAG, "InaSensorTask set to NIGHT_SLEEP (AlertFlag: 0x%04X, limit: %u)",
+                 static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
         break;
+    }
 
     case SolarNodeState::OTA_UPDATE:
         sampling_enabled_.store(false);
+        reporting_enabled_.store(false);
         ESP_LOGI(TAG, "InaSensorTask set to OTA_UPDATE (Sampling paused)");
         break;
     }
@@ -165,8 +169,12 @@ esp_err_t InaSensorTask::read_raw_sample(float& out_ma, uint16_t& out_bus_mv)
 void InaSensorTask::handle_read_error(InaSample& sample, esp_err_t read_err)
 {
     consecutive_errors_++;
-    ESP_LOGW(TAG, "INA226 read failed (attempt %u/%u): %s",
-             consecutive_errors_, MAX_CONSECUTIVE_ERRORS_BEFORE_HARD_RESET, esp_err_to_name(read_err));
+    ESP_LOGW(
+        TAG,
+        "INA226 read failed (attempt %u/%u): %s",
+        consecutive_errors_,
+        MAX_CONSECUTIVE_ERRORS_BEFORE_HARD_RESET,
+        esp_err_to_name(read_err));
 
     if (consecutive_errors_ >= MAX_CONSECUTIVE_ERRORS_BEFORE_HARD_RESET) {
         hard_reset_ina_power();
@@ -179,7 +187,8 @@ void InaSensorTask::apply_ema_filter(float raw_ma, InaSample& sample)
 {
     if (ema_current_ma_ == 0.0f && raw_ma > 0.0f) {
         ema_current_ma_ = raw_ma;
-    } else {
+    }
+    else {
         ema_current_ma_ = (EMA_ALPHA * raw_ma) + ((1.0f - EMA_ALPHA) * ema_current_ma_);
     }
 
@@ -217,7 +226,7 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
     farm::SolarSensorReport report{};
     report.power_profile = farm::PowerProfile::ALWAYS_ON;
     report.isc_current_ma = current_ma;
-    
+
     float ratio = (static_cast<float>(current_ma) / 700.0f);
     report.irradiance_wm2 = static_cast<uint16_t>(ratio * 1000.0f);
     report.estimated_power_w = static_cast<uint16_t>(ratio * 2640.0f);
