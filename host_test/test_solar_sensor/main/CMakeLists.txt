@@ -17,6 +17,7 @@ idf_component_register(
         wifi_manager
         idf_hals
         ota_manager
+        time_manager
         WHOLE_ARCHIVE
 )
 

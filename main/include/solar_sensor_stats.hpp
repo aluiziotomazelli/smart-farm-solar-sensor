@@ -20,9 +20,6 @@ struct SolarStats
     uint16_t magic = MAGIC;
     uint8_t version = VERSION;
 
-    // --- Node Metadata ---
-    farm::NodeMetadata my_node_metadata = {};
-
     // Wake / sleep info
     bool gpio_wakeup_enabled = false;
 

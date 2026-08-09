@@ -9,6 +9,7 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "../../components/wifi_manager"
     "../../components/idf_hals"
     "../../components/ota_manager"
+    "../../components/time_manager"
     "../mocks"
     "../gtest"
     
