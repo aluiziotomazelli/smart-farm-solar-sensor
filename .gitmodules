@@ -26,3 +26,7 @@
 	path = components/time_manager
 	url = https://github.com/aluiziotomazelli/time_manager
 	branch = main
+[submodule "components/ina226_driver"]
+	path = components/ina226_driver
+	url = https://github.com/aluiziotomazelli/ina226_driver
+	branch = main
