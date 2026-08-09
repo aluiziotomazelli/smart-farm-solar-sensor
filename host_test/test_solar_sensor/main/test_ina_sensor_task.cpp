@@ -3,7 +3,6 @@
 
 #include "ina_sensor_task.hpp"
 #include "mock_ina226_driver.hpp"
-#include "mock_power_control.hpp"
 #include "mock_espnow_manager.hpp"
 #include "mock_hal_timer.hpp"
 #include "mock_hal_freertos.hpp"
@@ -13,11 +12,9 @@ using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::SetArgReferee;
 using ::testing::DoAll;
-using ::testing::InSequence;
 
 using namespace ina;
 using namespace ina226;
-using namespace power_control;
 using namespace espnow;
 using namespace idf_hals;
 
@@ -25,7 +22,6 @@ class InaSensorTaskTest : public ::testing::Test
 {
 protected:
     NiceMock<MockIna226Driver> mock_driver_;
-    NiceMock<MockPowerControl> mock_power_control_;
     NiceMock<MockEspNowManager> mock_espnow_;
     NiceMock<MockTimerHAL> mock_timer_;
     NiceMock<MockHalFreertos> mock_rtos_;
@@ -38,19 +34,23 @@ protected:
     {
         sut_ = std::make_unique<InaSensorTask>(
             mock_driver_,
-            mock_power_control_,
             mock_espnow_,
             mock_timer_,
             mock_rtos_,
             dummy_queue_
         );
     }
+
+    void init_sut(InaSensorConfig config = {})
+    {
+        EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
+        EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
+        sut_->init(config);
+    }
 };
 
 TEST_F(InaSensorTaskTest, InitSuccess)
 {
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_timer_, get_time_us()).WillOnce(Return(1000000));
 
@@ -58,18 +58,8 @@ TEST_F(InaSensorTaskTest, InitSuccess)
     EXPECT_EQ(sut_->init(config), ESP_OK);
 }
 
-TEST_F(InaSensorTaskTest, InitPowerControlFailure)
-{
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_FAIL));
-
-    InaSensorConfig config{};
-    EXPECT_EQ(sut_->init(config), ESP_FAIL);
-}
-
 TEST_F(InaSensorTaskTest, InitDriverFailure)
 {
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_ERR_TIMEOUT));
 
     InaSensorConfig config{};
@@ -78,24 +68,17 @@ TEST_F(InaSensorTaskTest, InitDriverFailure)
 
 TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
 {
-    InaSensorConfig config{};
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
-    sut_->init(config);
+    init_sut();
 
-    // Initial cycle with 500mA
     float read_current = 500.0f;
     uint16_t read_bus = 12000;
     EXPECT_CALL(mock_driver_, read_current_ma(_))
         .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
     EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_))
         .WillOnce(DoAll(SetArgReferee<0>(read_bus), Return(ESP_OK)));
-
+    EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
     EXPECT_CALL(mock_espnow_, send_data(ReservedIds::HUB, _, _, _, false))
         .WillOnce(Return(ESP_OK));
-
     EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0))
         .WillOnce(Return(pdTRUE));
 
@@ -104,21 +87,13 @@ TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
 
 TEST_F(InaSensorTaskTest, ProcessCycleReportingDisabledSuppressesEspNow)
 {
-    InaSensorConfig config{};
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
-    sut_->init(config);
-
+    init_sut();
     sut_->set_reporting_enabled(false);
 
     float read_current = 500.0f;
     EXPECT_CALL(mock_driver_, read_current_ma(_))
         .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
-
-    // Should NOT call send_data when reporting is disabled
     EXPECT_CALL(mock_espnow_, send_data(_, _, _, _, _)).Times(0);
-
     EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0))
         .WillOnce(Return(pdTRUE));
 
@@ -135,29 +110,25 @@ TEST_F(InaSensorTaskTest, ProcessCycleSamplingDisabledDoesNothing)
     sut_->process_cycle();
 }
 
-TEST_F(InaSensorTaskTest, ConsecutiveI2cErrorsTriggerHardReset)
+TEST_F(InaSensorTaskTest, ReadErrorEnqueuesSampleWithErrorStatus)
 {
-    InaSensorConfig config{};
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
-    sut_->init(config);
+    // Task just enqueues the error sample — no power cycling, no reset.
+    // Recovery is the app's responsibility.
+    init_sut();
 
-    // Fail 1
     EXPECT_CALL(mock_driver_, read_current_ma(_)).WillOnce(Return(ESP_ERR_TIMEOUT));
+
+    // Sample must be enqueued even on error, so the app can count failures
+    InaSample captured_sample{};
+    EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0))
+        .WillOnce([&](QueueHandle_t, const void* item, TickType_t) {
+            captured_sample = *static_cast<const InaSample*>(item);
+            return pdTRUE;
+        });
+
     sut_->process_cycle();
 
-    // Fail 2
-    EXPECT_CALL(mock_driver_, read_current_ma(_)).WillOnce(Return(ESP_ERR_TIMEOUT));
-    sut_->process_cycle();
-
-    // Fail 3 -> Should trigger hard_reset_ina_power (turn_off, delay, turn_on, delay, init)
-    EXPECT_CALL(mock_driver_, read_current_ma(_)).WillOnce(Return(ESP_ERR_TIMEOUT));
-    EXPECT_CALL(mock_power_control_, turn_off()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
-
-    sut_->process_cycle();
+    EXPECT_EQ(captured_sample.status, ESP_ERR_TIMEOUT);
 }
 
 TEST_F(InaSensorTaskTest, SetOperatingModeDayActiveConfiguresAlertConversionReady)
@@ -187,9 +158,8 @@ TEST_F(InaSensorTaskTest, DynamicSamplePeriodAndWatchdogTimeoutCalculation)
     config.day_config.vbus_ct = ConversionTime::CT_1100US;
     config.day_config.avg_mode = AveragingMode::AVG_64;
 
-    EXPECT_CALL(mock_power_control_, init()).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_power_control_, turn_on()).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_timer_, get_time_us()).WillOnce(Return(0));
     sut_->init(config);
 
     // Period: (1100 + 1100) * 64 / 1000 = 140 ms

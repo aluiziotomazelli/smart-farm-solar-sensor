@@ -2,6 +2,7 @@
 #include "solar_sensor.hpp"
 
 #include "secrets.hpp"
+#include "ina_sensor_types.hpp"
 
 #define LOG_LOCAL_LEVEL ESP_LOG_INFO
 #include "esp_log.h"
@@ -348,6 +349,17 @@ esp_err_t SolarSensor::init_ina_task()
     config.delta_threshold_ma = 10;
     config.delta_threshold_percent = 0.03f;
     config.heartbeat_interval_ms = 1000;
+
+    // Day profile: ~7.1 Hz, ALERT = Conversion Ready
+    config.day_config.vsh_ct = ina226::ConversionTime::CT_1100US;
+    config.day_config.vbus_ct = ina226::ConversionTime::CT_1100US;
+    config.day_config.avg_mode = ina226::AveragingMode::AVG_64;
+    config.day_config.alert_flag = ina226::AlertFlag::CONVERSION_READY;
+    config.day_config.alert_limit = 0;
+
+    // Night profile: ALERT = Shunt Over Voltage (dawn wakeup threshold)
+    config.night_config.alert_flag = ina226::AlertFlag::SHUNT_OVER_VOLTAGE;
+    config.night_config.alert_limit = DEFAULT_DAWN_WAKEUP_ALERT_LIMIT;
 
     esp_err_t err = ina_sensor_task_.init(config);
     if (err != ESP_OK) {

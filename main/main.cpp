@@ -149,8 +149,8 @@ extern "C" void app_main()
         ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(i2c_err));
     }
 
-    // Instantiate INA Sensor Task
-    ina::InaSensorTask ina_task{ina_driver, ina_power_control, espnow, hal_timer, hal_freertos, ina_sample_queue};
+    // Instantiate INA Sensor Task (power control managed by the app, not the task)
+    ina::InaSensorTask ina_task{ina_driver, espnow, hal_timer, hal_freertos, ina_sample_queue};
 
     // Instantiate app with dependencies
     SolarSensor solar(

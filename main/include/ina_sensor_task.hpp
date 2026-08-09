@@ -3,7 +3,6 @@
 #include <atomic>
 #include "interfaces/i_ina_sensor_task.hpp"
 #include "interfaces/i_ina226_driver.hpp"
-#include "interfaces/i_power_control.hpp"
 #include "interfaces/i_espnow_manager.hpp"
 #include "interfaces/i_hal_timer.hpp"
 #include "interfaces/i_hal_freertos.hpp"
@@ -15,7 +14,6 @@ class InaSensorTask : public IInaSensorTask
 public:
     InaSensorTask(
         ina226::IIna226Driver& driver,
-        power_control::IPowerControl& power_control,
         espnow::IEspNowManager& espnow,
         idf_hals::ITimerHAL& timer,
         idf_hals::IHalFreertos& rtos,
@@ -34,8 +32,6 @@ public:
     uint32_t get_expected_sample_period_ms() const override;
     uint32_t get_watchdog_timeout_ms() const override;
 
-    esp_err_t hard_reset_ina_power() override;
-
     /**
      * @brief Performs one single sampling and processing cycle (used by task loop and unit tests).
      */
@@ -47,7 +43,6 @@ public:
 
 private:
     ina226::IIna226Driver& driver_;
-    power_control::IPowerControl& power_control_;
     espnow::IEspNowManager& espnow_;
     idf_hals::ITimerHAL& timer_;
     idf_hals::IHalFreertos& rtos_;
@@ -62,13 +57,10 @@ private:
     float ema_current_ma_{0.0f};
     float last_reported_current_ma_{0.0f};
     int64_t last_report_timestamp_us_{0};
-    uint8_t consecutive_errors_{0};
 
     static constexpr float EMA_ALPHA = 0.2f;
-    static constexpr uint8_t MAX_CONSECUTIVE_ERRORS_BEFORE_HARD_RESET = 3;
 
     esp_err_t read_raw_sample(float& out_ma, uint16_t& out_bus_mv);
-    void handle_read_error(InaSample& sample, esp_err_t read_err);
     void apply_ema_filter(float raw_ma, InaSample& sample);
     void check_and_dispatch_telemetry(InaSample& sample);
     void enqueue_sample(const InaSample& sample);

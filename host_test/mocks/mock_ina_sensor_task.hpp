@@ -17,7 +17,6 @@ public:
     MOCK_METHOD(SolarNodeState, get_operating_mode, (), (const, override));
     MOCK_METHOD(uint32_t, get_expected_sample_period_ms, (), (const, override));
     MOCK_METHOD(uint32_t, get_watchdog_timeout_ms, (), (const, override));
-    MOCK_METHOD(esp_err_t, hard_reset_ina_power, (), (override));
 };
 
 } // namespace ina

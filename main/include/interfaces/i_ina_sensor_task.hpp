@@ -22,8 +22,6 @@ public:
 
     virtual uint32_t get_expected_sample_period_ms() const = 0;
     virtual uint32_t get_watchdog_timeout_ms() const = 0;
-
-    virtual esp_err_t hard_reset_ina_power() = 0;
 };
 
 } // namespace ina

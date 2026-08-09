@@ -14,13 +14,11 @@ namespace ina {
 
 InaSensorTask::InaSensorTask(
     ina226::IIna226Driver& driver,
-    power_control::IPowerControl& power_control,
     espnow::IEspNowManager& espnow,
     idf_hals::ITimerHAL& timer,
     idf_hals::IHalFreertos& rtos,
     QueueHandle_t sample_queue)
     : driver_(driver)
-    , power_control_(power_control)
     , espnow_(espnow)
     , timer_(timer)
     , rtos_(rtos)
@@ -37,25 +35,12 @@ esp_err_t InaSensorTask::init(const InaSensorConfig& config)
 {
     config_ = config;
 
-    esp_err_t err = power_control_.init();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize INA VCC power control: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    err = power_control_.turn_on();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to turn on INA VCC power: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    err = driver_.init();
+    esp_err_t err = driver_.init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA226 driver: %s", esp_err_to_name(err));
         return err;
     }
 
-    consecutive_errors_ = 0;
     last_report_timestamp_us_ = timer_.get_time_us();
     ESP_LOGI(TAG, "InaSensorTask initialized successfully");
     return ESP_OK;
@@ -125,30 +110,6 @@ uint32_t InaSensorTask::get_watchdog_timeout_ms() const
     return std::max<uint32_t>(500, period_ms * 3);
 }
 
-esp_err_t InaSensorTask::hard_reset_ina_power()
-{
-    ESP_LOGW(TAG, "Performing INA226 hardware power cycle (50ms off)...");
-    esp_err_t err = power_control_.turn_off();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    rtos_.task_delay(pdMS_TO_TICKS(50));
-
-    err = power_control_.turn_on();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    rtos_.task_delay(pdMS_TO_TICKS(10));
-    err = driver_.init();
-    if (err == ESP_OK) {
-        consecutive_errors_ = 0;
-        ESP_LOGI(TAG, "INA226 re-initialized successfully after power cycle");
-    }
-    return err;
-}
-
 void InaSensorTask::process_cycle()
 {
     if (!sampling_enabled_.load()) {
@@ -164,11 +125,11 @@ void InaSensorTask::process_cycle()
     sample.status = read_err;
 
     if (read_err != ESP_OK) {
-        handle_read_error(sample, read_err);
+        ESP_LOGW(TAG, "INA226 read failed: %s", esp_err_to_name(read_err));
+        enqueue_sample(sample);
         return;
     }
 
-    consecutive_errors_ = 0;
     apply_ema_filter(raw_ma, sample);
     sample.bus_voltage_mv = bus_mv;
 
@@ -183,23 +144,6 @@ esp_err_t InaSensorTask::read_raw_sample(float& out_ma, uint16_t& out_bus_mv)
         driver_.read_bus_voltage_mv(out_bus_mv);
     }
     return err;
-}
-
-void InaSensorTask::handle_read_error(InaSample& sample, esp_err_t read_err)
-{
-    consecutive_errors_++;
-    ESP_LOGW(
-        TAG,
-        "INA226 read failed (attempt %u/%u): %s",
-        consecutive_errors_,
-        MAX_CONSECUTIVE_ERRORS_BEFORE_HARD_RESET,
-        esp_err_to_name(read_err));
-
-    if (consecutive_errors_ >= MAX_CONSECUTIVE_ERRORS_BEFORE_HARD_RESET) {
-        hard_reset_ina_power();
-    }
-
-    enqueue_sample(sample);
 }
 
 void InaSensorTask::apply_ema_filter(float raw_ma, InaSample& sample)
