@@ -85,8 +85,10 @@ private:
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
     uint8_t consecutive_ina_errors_ = 0;
+    i2c_master_bus_handle_t i2c_bus_handle_;
 
-    esp_err_t init_ina_task();
+    esp_err_t init_ina_task(InaSensorConfig config);
+    esp_err_t init_ina_vcc_pin();
     esp_err_t init_ota();
     esp_err_t init_wifi();
     esp_err_t init_time();

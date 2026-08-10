@@ -9,6 +9,22 @@
 
 static const char* TAG = "SolarSensor";
 
+// ============== INA226 Config ==============
+static constexpr InaModeConfig day_config = {
+    .vsh_ct = ina226::ConversionTime::CT_1100US,
+    .vbus_ct = ina226::ConversionTime::CT_1100US,
+    .avg_mode = ina226::AveragingMode::AVG_64,
+    .alert_flag = ina226::AlertFlag::CONVERSION_READY,
+    .alert_limit = 0,
+};
+static constexpr InaSensorConfig ina_config = {
+    .sample_interval_ms = 125,
+    .delta_threshold_ma = 10,
+    .delta_threshold_percent = 0.03f,
+    .heartbeat_interval_ms = 1000,
+    .day_config = day_config,
+};
+
 SolarSensor::SolarSensor(
     ina::IInaSensorTask& ina_sensor_task,
     QueueHandle_t ina_sample_queue,
@@ -88,8 +104,14 @@ esp_err_t SolarSensor::init()
         session_healthy_ = false;
     }
 
-    // 5. Initialize INA sensor task
-    if ((err = init_ina_task()) != ESP_OK) {
+    // 5. Initialize INA VCC pin
+    if ((err = init_ina_vcc_pin()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize INA VCC pin: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // 6. Initialize INA task
+    if ((err = init_ina_task(ina_config)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA Sensor Task: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
@@ -346,33 +368,16 @@ esp_err_t SolarSensor::connect_wifi_with_retry(uint8_t max_attempts)
     return err;
 }
 
-esp_err_t SolarSensor::init_ina_task()
+esp_err_t SolarSensor::init_ina_task(InaSensorConfig config)
 {
-    i2c_master_bus_handle_t i2c_bus_handle = nullptr;
-    esp_err_t err = init_i2c_master_bus(i2c_bus_handle);
+    i2c_bus_handle_ = nullptr;
+    esp_err_t err = init_i2c_master_bus(i2c_bus_handle_);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(err));
         return err;
     }
 
-    InaSensorConfig config{};
-    config.sample_interval_ms = 125;
-    config.delta_threshold_ma = 10;
-    config.delta_threshold_percent = 0.03f;
-    config.heartbeat_interval_ms = 1000;
-
-    // Day profile: ~7.1 Hz, ALERT = Conversion Ready
-    config.day_config.vsh_ct = ina226::ConversionTime::CT_1100US;
-    config.day_config.vbus_ct = ina226::ConversionTime::CT_1100US;
-    config.day_config.avg_mode = ina226::AveragingMode::AVG_64;
-    config.day_config.alert_flag = ina226::AlertFlag::CONVERSION_READY;
-    config.day_config.alert_limit = 0;
-
-    // Night profile: ALERT = Shunt Over Voltage (dawn wakeup threshold)
-    config.night_config.alert_flag = ina226::AlertFlag::SHUNT_OVER_VOLTAGE;
-    config.night_config.alert_limit = DEFAULT_DAWN_WAKEUP_ALERT_LIMIT;
-
-    err = ina_sensor_task_.init(config, i2c_bus_handle);
+    err = ina_sensor_task_.init(config, i2c_bus_handle_);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA Sensor Task config: %s", esp_err_to_name(err));
         return err;
@@ -399,9 +404,17 @@ void SolarSensor::process_ina_samples()
                 "Received INA sample error status: %s (consecutive=%u)",
                 esp_err_to_name(sample.status),
                 consecutive_ina_errors_);
+
             if (consecutive_ina_errors_ >= 5) {
                 ESP_LOGE(TAG, "5 consecutive INA errors! Resetting system...");
-                hal_system_.restart();
+                if (recover_ina_hardware() == ESP_OK) {
+                    ESP_LOGI(TAG, "Successfully recovered INA hardware");
+                    consecutive_ina_errors_ = 0;
+                    return;
+                }
+                else {
+                    hal_system_.restart();
+                }
             }
             return;
         }
@@ -421,20 +434,24 @@ void SolarSensor::process_ina_samples()
 esp_err_t SolarSensor::recover_ina_hardware()
 {
     ina_sensor_task_.stop();
-    // deinit i2c
+
+    if (i2c_bus_handle_ != nullptr) {
+        hal_i2c_.del_master_bus(i2c_bus_handle_);
+    }
+
+    // SDA/SCL pins on 0V to avoid parasitic power
     hal_gpio_.set_direction(I2C_SDA_GPIO, GPIO_MODE_OUTPUT);
     hal_gpio_.set_level(I2C_SDA_GPIO, 0);
     hal_gpio_.set_direction(I2C_SCL_GPIO, GPIO_MODE_OUTPUT);
     hal_gpio_.set_level(I2C_SCL_GPIO, 0);
+
+    // Restart INA VCC
     hal_gpio_.set_level(INA_VCC_GPIO, 0);
     hal_rtos_.task_delay(pdMS_TO_TICKS(100));
     hal_gpio_.set_level(INA_VCC_GPIO, 1);
     hal_rtos_.task_delay(pdMS_TO_TICKS(10));
-    hal_gpio_.set_direction(I2C_SDA_GPIO, GPIO_MODE_INPUT);
-    hal_gpio_.set_direction(I2C_SCL_GPIO, GPIO_MODE_INPUT);
-    // init i2c
 
-    return init_ina_task();
+    return init_ina_task(ina_config);
 }
 
 esp_err_t SolarSensor::init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_handle)
@@ -448,4 +465,31 @@ esp_err_t SolarSensor::init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_hand
     bus_cfg.flags.enable_internal_pullup = true;
 
     return hal_i2c_.new_master_bus(&bus_cfg, &i2c_bus_handle);
+}
+
+esp_err_t SolarSensor::init_ina_vcc_pin()
+{
+    constexpr gpio_config_t vcc_gpio_cfg = {
+        .pin_bit_mask = (1ULL << INA_VCC_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE, // Pull-down on reset/boot (not floating)
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+
+    esp_err_t err;
+    if ((err = hal_gpio_.config(&vcc_gpio_cfg)) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize GPIO: %s", esp_err_to_name(err));
+        return err;
+    }
+    if ((err = hal_gpio_.set_drive_capability(INA_VCC_GPIO, GPIO_DRIVE_CAP_3)) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set INA VCC GPIO drive capability: %s", esp_err_to_name(err));
+        return err;
+    }
+    if ((err = hal_gpio_.set_level(INA_VCC_GPIO, 1)) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set INA VCC GPIO level: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ESP_OK;
 }
