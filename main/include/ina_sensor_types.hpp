@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+
 #include "ina226_types.hpp"
 
 /**
@@ -18,11 +20,11 @@ static constexpr uint16_t DEFAULT_DAWN_WAKEUP_ALERT_LIMIT = 12;
 
 struct InaSample
 {
-    uint16_t isc_current_ma{0};   ///< Instantaneous short-circuit current in mA
-    uint16_t bus_voltage_mv{0};   ///< Measured bus/shunt voltage in mV
-    bool delta_detected{false};   ///< Flag indicating change exceeding delta threshold
-    esp_err_t status{ESP_OK};     ///< ESP_OK or I2C/INA226 hardware error status
-    int64_t timestamp_us{0};      ///< Microsecond timestamp of reading
+    uint16_t isc_current_ma = 0; ///< Instantaneous short-circuit current in mA
+    uint16_t bus_voltage_mv = 0; ///< Measured bus/shunt voltage in mV
+    bool delta_detected = false; ///< Flag indicating change exceeding delta threshold
+    esp_err_t status = ESP_OK;   ///< ESP_OK or I2C/INA226 hardware error status
+    int64_t timestamp_us = 0;    ///< Microsecond timestamp of reading
 };
 
 /**
@@ -40,24 +42,24 @@ struct InaModeConfig
 
 struct InaSensorConfig
 {
-    uint16_t sample_interval_ms{125};       ///< Sampling interval in ms (default ~8Hz)
-    uint16_t delta_threshold_ma{10};        ///< Absolute current delta threshold in mA
-    float delta_threshold_percent{0.03f};   ///< Relative current delta threshold (3%)
-    uint16_t heartbeat_interval_ms{1000};   ///< Heartbeat report interval in ms
+    uint16_t sample_interval_ms = 125;     ///< Sampling interval in ms (default ~8Hz)
+    uint16_t delta_threshold_ma = 10;      ///< Absolute current delta threshold in mA
+    float delta_threshold_percent = 0.03f; ///< Relative current delta threshold (3%)
+    uint16_t heartbeat_interval_ms = 1000; ///< Heartbeat report interval in ms
+    uint32_t task_stack_size = 4096;       ///< FreeRTOS task stack size in bytes
+    UBaseType_t task_priority = 5;         ///< FreeRTOS task priority
 
     InaModeConfig day_config{
         ina226::ConversionTime::CT_1100US,
         ina226::ConversionTime::CT_1100US,
         ina226::AveragingMode::AVG_64,
         ina226::AlertFlag::CONVERSION_READY,
-        0
-    };
+        0};
 
     InaModeConfig night_config{
         ina226::ConversionTime::CT_8244US,
         ina226::ConversionTime::CT_8244US,
         ina226::AveragingMode::AVG_64,
         ina226::AlertFlag::SHUNT_OVER_VOLTAGE,
-        DEFAULT_DAWN_WAKEUP_ALERT_LIMIT
-    };
+        DEFAULT_DAWN_WAKEUP_ALERT_LIMIT};
 };

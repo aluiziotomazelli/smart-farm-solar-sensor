@@ -48,13 +48,17 @@ private:
     idf_hals::ITimerHAL& timer_;
     idf_hals::IHalFreertos& rtos_;
     QueueHandle_t sample_queue_;
-    TaskHandle_t task_handle_ = nullptr;
 
     InaSensorConfig config_{};
     SolarNodeState mode_{SolarNodeState::DAY_ACTIVE};
     std::atomic<bool> reporting_enabled_{true};
     std::atomic<bool> sampling_enabled_{true};
     std::atomic<bool> running_{false};
+
+    TaskHandle_t task_handle_ = nullptr;
+    static void task_entry_point(void* arg);
+    void ina_sensor_task();
+    SemaphoreHandle_t task_done_semaphore_ = nullptr;
 
     float ema_current_ma_{0.0f};
     float last_reported_current_ma_{0.0f};

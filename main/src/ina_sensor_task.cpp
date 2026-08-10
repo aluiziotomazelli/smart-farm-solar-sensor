@@ -49,12 +49,47 @@ esp_err_t InaSensorTask::init(const InaSensorConfig& config, i2c_master_bus_hand
 esp_err_t InaSensorTask::start()
 {
     running_.store(true);
+
+    task_done_semaphore_ = rtos_.semaphore_create_binary();
+    if (task_done_semaphore_ == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    BaseType_t task_ret = rtos_.task_create(
+        task_entry_point, "InaSensorTask", config_.task_stack_size, this, config_.task_priority, &task_handle_);
+
+    if (task_ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create INA Sensor Task");
+        return ESP_ERR_NO_MEM;
+    }
+
     return ESP_OK;
 }
 
 void InaSensorTask::stop()
 {
     running_.store(false);
+
+    if (task_handle_ != nullptr) {
+        rtos_.task_notify_give(task_handle_);
+        // Wait for task to exit
+        uint8_t delay_ms = 10;
+        for (int timeout = 1000; timeout > 0; timeout -= delay_ms) {
+            if (rtos_.semaphore_take(task_done_semaphore_, delay_ms) == pdPASS)
+                break;
+        }
+
+        // Forcing deleting task
+        if (task_handle_ != nullptr) {
+            ESP_LOGW(TAG, "Forcing deletion of tx manager task");
+            rtos_.task_delete(task_handle_);
+            task_handle_ = nullptr;
+        }
+    }
+    if (task_done_semaphore_ != nullptr) {
+        rtos_.semaphore_delete(task_done_semaphore_);
+        task_done_semaphore_ = nullptr;
+    }
 }
 
 esp_err_t InaSensorTask::set_operating_mode(SolarNodeState mode)
@@ -141,7 +176,10 @@ void InaSensorTask::process_cycle()
     apply_ema_filter(raw_ma, sample);
     sample.bus_voltage_mv = bus_mv;
 
-    check_and_dispatch_telemetry(sample);
+    if (reporting_enabled_.load()) {
+        check_and_dispatch_telemetry(sample);
+    }
+
     enqueue_sample(sample);
 }
 
@@ -177,7 +215,7 @@ void InaSensorTask::check_and_dispatch_telemetry(InaSample& sample)
 
     sample.delta_detected = delta_triggered;
 
-    if ((delta_triggered || heartbeat_triggered) && reporting_enabled_.load()) {
+    if (delta_triggered || heartbeat_triggered) {
         if (send_telemetry_report(sample.isc_current_ma) == ESP_OK) {
             last_reported_current_ma_ = ema_current_ma_;
             last_report_timestamp_us_ = now_us;
@@ -210,6 +248,27 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
         &report,
         sizeof(report),
         /*require_ack=*/false);
+}
+
+void InaSensorTask::task_entry_point(void* arg)
+{
+    static_cast<InaSensorTask*>(arg)->ina_sensor_task();
+}
+
+void InaSensorTask::ina_sensor_task()
+{
+    uint32_t timeout_ms = get_watchdog_timeout_ms();
+    while (running_) {
+        if (rtos_.task_notify_take(pdTRUE, timeout_ms)) {
+            process_cycle();
+        }
+    }
+
+    ESP_LOGI(TAG, "INA sensor task stopped");
+
+    task_handle_ = nullptr;
+    rtos_.semaphore_give(task_done_semaphore_);
+    rtos_.task_delete(nullptr);
 }
 
 } // namespace ina
