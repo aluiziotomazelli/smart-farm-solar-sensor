@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include "driver/i2c_master.h"
 #include "ina_sensor_types.hpp"
 #include "solar_sensor_types.hpp"
 
@@ -11,7 +12,7 @@ class IInaSensorTask
 public:
     virtual ~IInaSensorTask() = default;
 
-    virtual esp_err_t init(const InaSensorConfig& config) = 0;
+    virtual esp_err_t init(const InaSensorConfig& config, i2c_master_bus_handle_t i2c_bus) = 0;
     virtual esp_err_t start() = 0;
     virtual void stop() = 0;
 

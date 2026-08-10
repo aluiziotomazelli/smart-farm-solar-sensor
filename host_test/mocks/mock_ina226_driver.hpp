@@ -8,6 +8,7 @@ namespace ina226 {
 class MockIna226Driver : public IIna226Driver
 {
 public:
+    MOCK_METHOD(esp_err_t, init, (i2c_master_bus_handle_t bus_handle), (override));
     MOCK_METHOD(esp_err_t, init, (), (override));
     MOCK_METHOD(esp_err_t, reset, (), (override));
     MOCK_METHOD(esp_err_t, read_shunt_voltage_uv, (int32_t & out_uv), (override));

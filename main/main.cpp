@@ -31,7 +31,6 @@
 #include "time_manager.hpp"
 
 #include "hal_i2c.hpp"
-#include "power_control.hpp"
 #include "ina226_driver.hpp"
 #include "ina_sensor_task.hpp"
 
@@ -43,13 +42,6 @@
 static const char* TAG = "main";
 
 static constexpr bool IS_LOGGING = false;
-
-// Production Configuration for XIAO-ESP32-C3 Mini Board
-static constexpr gpio_num_t BATTERY_LEVEL_GPIO = GPIO_NUM_3; // D1
-static constexpr gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_9;   // Boot button
-static constexpr gpio_num_t INA_VCC_GPIO = GPIO_NUM_5;        // D3 - INA VCC Power Control
-static constexpr gpio_num_t I2C_SDA_GPIO = GPIO_NUM_6;        // D4
-static constexpr gpio_num_t I2C_SCL_GPIO = GPIO_NUM_7;        // D5
 
 static constexpr const char* CORE_NVS_KEY = "core";
 static constexpr const char* STATS_NVS_KEY = "solar_stats";
@@ -68,8 +60,7 @@ static idf_hals::SystemHAL hal_system;
 static idf_hals::HalSystemTime hal_sys_time;
 static idf_hals::HalSntp hal_sntp;
 
-// INA226 Power Control & Driver
-static power_control::PowerControl ina_power_control{hal_gpio, INA_VCC_GPIO, /*inverted_logic=*/false, /*initial_on=*/false};
+// INA226 Driver
 static ina226::Ina226Driver ina_driver{hal_i2c};
 
 // BatteryMonitor
@@ -137,7 +128,7 @@ extern "C" void app_main()
     bus_cfg.i2c_port = I2C_NUM_0;
     bus_cfg.sda_io_num = I2C_SDA_GPIO;
     bus_cfg.scl_io_num = I2C_SCL_GPIO;
-    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
+    bus_cfg.clk_source = {};
     bus_cfg.glitch_ignore_cnt = 7;
     bus_cfg.flags.enable_internal_pullup = true;
 
@@ -145,7 +136,8 @@ extern "C" void app_main()
     esp_err_t i2c_err = hal_i2c.new_master_bus(&bus_cfg, &i2c_bus_handle);
     if (i2c_err == ESP_OK) {
         ina_driver.init(i2c_bus_handle);
-    } else {
+    }
+    else {
         ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(i2c_err));
     }
 
@@ -168,7 +160,9 @@ extern "C" void app_main()
         hal_sleep,
         hal_system,
         time_mgr,
-        hal_freertos);
+        hal_freertos,
+        hal_gpio,
+        hal_i2c);
 
     // Initialize application state
     solar.init();

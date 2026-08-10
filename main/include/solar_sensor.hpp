@@ -13,6 +13,8 @@
 #include "interfaces/i_hal_system.hpp"
 #include "interfaces/i_time_manager.hpp"
 #include "interfaces/i_hal_freertos.hpp"
+#include "interfaces/i_hal_gpio.hpp"
+#include "interfaces/i_hal_i2c.hpp"
 
 #include "interfaces/i_ina_sensor_task.hpp"
 
@@ -40,7 +42,9 @@ public:
         idf_hals::ISleepHAL& hal_sleep,
         idf_hals::ISystemHAL& hal_system,
         time_manager::ITimeManager& time_manager,
-        idf_hals::IHalFreertos& hal_freertos);
+        idf_hals::IHalFreertos& hal_freertos,
+        idf_hals::IGpioHAL& hal_gpio,
+        idf_hals::II2cHAL& hal_i2c);
 
     virtual ~SolarSensor() = default;
 
@@ -75,6 +79,8 @@ private:
     idf_hals::ISystemHAL& hal_system_;
     time_manager::ITimeManager& time_manager_;
     idf_hals::IHalFreertos& hal_rtos_;
+    idf_hals::IGpioHAL& hal_gpio_;
+    idf_hals::II2cHAL& hal_i2c_;
 
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
@@ -87,10 +93,12 @@ private:
     esp_err_t init_core_storage();
     esp_err_t init_solar_storage();
     esp_err_t init_espnow();
+    esp_err_t init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_handle);
 
     void check_firmware();
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
     esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     void save_persistent_state();
     void process_ina_samples();
+    esp_err_t recover_ina_hardware();
 };

@@ -18,6 +18,9 @@ using namespace ina226;
 using namespace espnow;
 using namespace idf_hals;
 
+// Sentinel null bus handle used in unit tests (mock driver never dereferences it)
+static constexpr i2c_master_bus_handle_t NULL_BUS = nullptr;
+
 class InaSensorTaskTest : public ::testing::Test
 {
 protected:
@@ -43,27 +46,28 @@ protected:
 
     void init_sut(InaSensorConfig config = {})
     {
-        EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
+        // init(bus_handle) binds the driver to the I2C bus — mocked, handle is ignored
+        EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
         EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
-        sut_->init(config);
+        sut_->init(config, NULL_BUS);
     }
 };
 
 TEST_F(InaSensorTaskTest, InitSuccess)
 {
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_timer_, get_time_us()).WillOnce(Return(1000000));
 
     InaSensorConfig config{};
-    EXPECT_EQ(sut_->init(config), ESP_OK);
+    EXPECT_EQ(sut_->init(config, NULL_BUS), ESP_OK);
 }
 
 TEST_F(InaSensorTaskTest, InitDriverFailure)
 {
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_ERR_TIMEOUT));
+    EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_ERR_TIMEOUT));
 
     InaSensorConfig config{};
-    EXPECT_EQ(sut_->init(config), ESP_ERR_TIMEOUT);
+    EXPECT_EQ(sut_->init(config, NULL_BUS), ESP_ERR_TIMEOUT);
 }
 
 TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
@@ -158,9 +162,9 @@ TEST_F(InaSensorTaskTest, DynamicSamplePeriodAndWatchdogTimeoutCalculation)
     config.day_config.vbus_ct = ConversionTime::CT_1100US;
     config.day_config.avg_mode = AveragingMode::AVG_64;
 
-    EXPECT_CALL(mock_driver_, init()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_timer_, get_time_us()).WillOnce(Return(0));
-    sut_->init(config);
+    sut_->init(config, NULL_BUS);
 
     // Period: (1100 + 1100) * 64 / 1000 = 140 ms
     EXPECT_EQ(sut_->get_expected_sample_period_ms(), 140u);

@@ -31,11 +31,11 @@ InaSensorTask::~InaSensorTask()
     stop();
 }
 
-esp_err_t InaSensorTask::init(const InaSensorConfig& config)
+esp_err_t InaSensorTask::init(const InaSensorConfig& config, i2c_master_bus_handle_t i2c_bus)
 {
     config_ = config;
 
-    esp_err_t err = driver_.init();
+    esp_err_t err = driver_.init(i2c_bus);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA226 driver: %s", esp_err_to_name(err));
         return err;
@@ -63,23 +63,31 @@ esp_err_t InaSensorTask::set_operating_mode(SolarNodeState mode)
     esp_err_t err = ESP_OK;
 
     switch (mode) {
-    case SolarNodeState::DAY_ACTIVE: {
+    case SolarNodeState::DAY_ACTIVE:
+    {
         const auto& cfg = config_.day_config;
         err = driver_.configure_alert(static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
         sampling_enabled_.store(true);
         reporting_enabled_.store(true);
-        ESP_LOGI(TAG, "InaSensorTask set to DAY_ACTIVE (AlertFlag: 0x%04X, limit: %u)",
-                 static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
+        ESP_LOGI(
+            TAG,
+            "InaSensorTask set to DAY_ACTIVE (AlertFlag: 0x%04X, limit: %u)",
+            static_cast<uint16_t>(cfg.alert_flag),
+            cfg.alert_limit);
         break;
     }
 
-    case SolarNodeState::NIGHT_SLEEP: {
+    case SolarNodeState::NIGHT_SLEEP:
+    {
         const auto& cfg = config_.night_config;
         err = driver_.configure_alert(static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
         sampling_enabled_.store(false);
         reporting_enabled_.store(false);
-        ESP_LOGI(TAG, "InaSensorTask set to NIGHT_SLEEP (AlertFlag: 0x%04X, limit: %u)",
-                 static_cast<uint16_t>(cfg.alert_flag), cfg.alert_limit);
+        ESP_LOGI(
+            TAG,
+            "InaSensorTask set to NIGHT_SLEEP (AlertFlag: 0x%04X, limit: %u)",
+            static_cast<uint16_t>(cfg.alert_flag),
+            cfg.alert_limit);
         break;
     }
 

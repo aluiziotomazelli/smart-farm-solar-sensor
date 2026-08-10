@@ -21,7 +21,7 @@ public:
 
     ~InaSensorTask() override;
 
-    esp_err_t init(const InaSensorConfig& config) override;
+    esp_err_t init(const InaSensorConfig& config, i2c_master_bus_handle_t i2c_bus) override;
     esp_err_t start() override;
     void stop() override;
 

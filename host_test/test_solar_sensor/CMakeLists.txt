@@ -15,6 +15,7 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "../mocks"
     "../gtest"
     
+    
     "$ENV{IDF_PATH}/tools/mocks/driver"  # Official ESP-IDF driver mocks
     "$ENV{IDF_PATH}/tools/mocks/esp_wifi"  # Official ESP-IDF driver mocks
     "$ENV{IDF_PATH}/tools/mocks/esp_netif"
@@ -26,7 +27,6 @@ set(COMPONENTS
     "main"
     "smart-farm-common"
     "espnow_manager"
-    "idf_hals"
     "ota_manager"
     "time_manager"
     "power_control"
