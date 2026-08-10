@@ -5,6 +5,9 @@
 #include "ina_sensor_types.hpp"
 #include "solar_sensor_types.hpp"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 namespace ina {
 
 class IInaSensorTask
@@ -23,6 +26,8 @@ public:
 
     virtual uint32_t get_expected_sample_period_ms() const = 0;
     virtual uint32_t get_watchdog_timeout_ms() const = 0;
+
+    virtual TaskHandle_t get_task_handle() const = 0;
 };
 
 } // namespace ina

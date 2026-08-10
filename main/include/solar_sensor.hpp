@@ -103,4 +103,8 @@ private:
     void save_persistent_state();
     void process_ina_samples();
     esp_err_t recover_ina_hardware();
+    void enter_deep_sleep();
+
+    esp_err_t init_ina_alert_pin();
+    static void IRAM_ATTR ina_alert_isr_handler(void* arg);
 };

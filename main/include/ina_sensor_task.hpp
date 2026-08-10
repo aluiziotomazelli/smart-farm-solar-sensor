@@ -39,6 +39,7 @@ public:
 
     bool is_reporting_enabled() const { return reporting_enabled_.load(); }
     bool is_sampling_enabled() const { return sampling_enabled_.load(); }
+    TaskHandle_t get_task_handle() const override { return task_handle_; }
     SolarNodeState get_operating_mode() const override { return mode_; }
 
 private:
@@ -47,6 +48,7 @@ private:
     idf_hals::ITimerHAL& timer_;
     idf_hals::IHalFreertos& rtos_;
     QueueHandle_t sample_queue_;
+    TaskHandle_t task_handle_ = nullptr;
 
     InaSensorConfig config_{};
     SolarNodeState mode_{SolarNodeState::DAY_ACTIVE};

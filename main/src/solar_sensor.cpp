@@ -9,6 +9,8 @@
 
 static const char* TAG = "SolarSensor";
 
+static constexpr uint16_t DEEP_SLEEP_TIME_MIN = 60;
+
 // ============== INA226 Config ==============
 static constexpr InaModeConfig day_config = {
     .vsh_ct = ina226::ConversionTime::CT_1100US,
@@ -490,6 +492,75 @@ esp_err_t SolarSensor::init_ina_vcc_pin()
         ESP_LOGE(TAG, "Failed to set INA VCC GPIO level: %s", esp_err_to_name(err));
         return err;
     }
+    // Disable hold after deep sleep
+    if ((err = hal_gpio_.hold_dis(INA_VCC_GPIO)) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to disable INA VCC GPIO hold: %s", esp_err_to_name(err));
+        return err;
+    }
 
     return ESP_OK;
+}
+
+void SolarSensor::enter_deep_sleep()
+{
+    ESP_LOGI(TAG, "Entering deep sleep...");
+
+    constexpr uint64_t sleep_time = DEEP_SLEEP_TIME_MIN * 60ULL * 1000000ULL;
+    hal_sleep_.enable_timer_wakeup(sleep_time);
+    hal_sleep_.deep_sleep_enable_gpio_wakeup(1ULL << INA_ALERT_GPIO, idf_hals::GpioWakeupMode::LOW_LEVEL);
+
+    hal_sleep_.deep_sleep_start();
+}
+
+esp_err_t SolarSensor::init_ina_alert_pin()
+{
+    gpio_config_t alert_cfg = {
+        .pin_bit_mask = (1ULL << INA_ALERT_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+
+    esp_err_t err = hal_gpio_.config(&alert_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize INA alert GPIO: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = hal_gpio_.install_isr_service(0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to install INA alert GPIO ISR service: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, ina_sensor_task_.get_task_handle());
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to attach INA alert GPIO ISR handler: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Alert interrupt service routine
+ *
+ * @param arg Task handle to be notified
+ *
+ * @note This ISR runs in IRAM for fast execution and notifies the button task.
+ * It uses DRAM logging to avoid flash access during interrupt handling.
+ */
+static void IRAM_ATTR ina_alert_isr_handler(void* arg)
+{
+    TaskHandle_t task_handle = static_cast<TaskHandle_t>(arg);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    if (task_handle != nullptr) {
+        vTaskNotifyGiveFromISR(task_handle, &xHigherPriorityTaskWoken);
+    }
+
+    if (xHigherPriorityTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
 }
