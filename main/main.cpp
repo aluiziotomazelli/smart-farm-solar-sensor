@@ -123,24 +123,6 @@ extern "C" void app_main()
     auto& wifi = wifi_manager::WiFiManager::get_instance();
     auto& espnow = espnow::EspNowManager::instance();
 
-    // Initialize I2C Bus Master
-    i2c_master_bus_config_t bus_cfg = {};
-    bus_cfg.i2c_port = I2C_NUM_0;
-    bus_cfg.sda_io_num = I2C_SDA_GPIO;
-    bus_cfg.scl_io_num = I2C_SCL_GPIO;
-    bus_cfg.clk_source = {};
-    bus_cfg.glitch_ignore_cnt = 7;
-    bus_cfg.flags.enable_internal_pullup = true;
-
-    i2c_master_bus_handle_t i2c_bus_handle = nullptr;
-    esp_err_t i2c_err = hal_i2c.new_master_bus(&bus_cfg, &i2c_bus_handle);
-    if (i2c_err == ESP_OK) {
-        ina_driver.init(i2c_bus_handle);
-    }
-    else {
-        ESP_LOGE(TAG, "Failed to create I2C master bus: %s", esp_err_to_name(i2c_err));
-    }
-
     // Instantiate INA Sensor Task (power control managed by the app, not the task)
     ina::InaSensorTask ina_task{ina_driver, espnow, hal_timer, hal_freertos, ina_sample_queue};
 

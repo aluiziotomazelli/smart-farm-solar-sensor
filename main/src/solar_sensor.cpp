@@ -443,7 +443,7 @@ esp_err_t SolarSensor::init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_hand
     bus_cfg.i2c_port = I2C_NUM_0;
     bus_cfg.sda_io_num = I2C_SDA_GPIO;
     bus_cfg.scl_io_num = I2C_SCL_GPIO;
-    bus_cfg.clk_source = {};
+    bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
     bus_cfg.glitch_ignore_cnt = 7;
     bus_cfg.flags.enable_internal_pullup = true;
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
-#include "driver/i2c_master.h"
+#include "interfaces/i_hal_i2c.hpp"
 #include "ina_sensor_types.hpp"
 #include "solar_sensor_types.hpp"
 
