@@ -6,6 +6,8 @@
 #include "mock_espnow_manager.hpp"
 #include "mock_hal_timer.hpp"
 #include "mock_hal_freertos.hpp"
+#include "mock_time_manager.hpp"
+#include "telemetry_snapshot.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -33,6 +35,8 @@ protected:
     NiceMock<MockEspNowManager> mock_espnow_;
     NiceMock<MockTimerHAL> mock_timer_;
     NiceMock<MockHalFreertos> mock_rtos_;
+    NiceMock<time_manager::MockTimeManager> mock_time_;
+    TelemetrySnapshot snapshot_;
 
     ina226::Ina226Config base_config_;
 
@@ -47,6 +51,8 @@ protected:
             mock_espnow_,
             mock_timer_,
             mock_rtos_,
+            mock_time_,
+            snapshot_,
             dummy_queue_
         );
     }
@@ -111,6 +117,72 @@ TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
         .WillOnce(Return(pdTRUE));
 
     sut_->process_cycle();
+}
+
+TEST_F(InaSensorTaskTest, ProcessCyclePopulatesTelemetryFromSnapshotAndSyncTime)
+{
+    init_sut();
+
+    snapshot_.update_battery(3700, 85, farm::BatteryState::NORMAL);
+    snapshot_.update_stats(650, 1200);
+    snapshot_.set_night_mode(false);
+
+    EXPECT_CALL(mock_time_, is_synchronized()).WillOnce(Return(true));
+    EXPECT_CALL(mock_time_, get_timestamp_ms()).WillOnce(Return(1700000000000ULL));
+
+    float read_current = 500.0f;
+    uint16_t read_bus = 12000;
+    EXPECT_CALL(mock_driver_, read_current_ma(_))
+        .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
+    EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_))
+        .WillOnce(DoAll(SetArgReferee<0>(read_bus), Return(ESP_OK)));
+    EXPECT_CALL(mock_driver_, read_alert_flags(_))
+        .WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
+
+    farm::SolarSensorReport captured_report{};
+    EXPECT_CALL(mock_espnow_, send_data(ReservedIds::HUB, static_cast<uint8_t>(farm::PayloadType::SOLAR_SENSOR_REPORT), _, sizeof(farm::SolarSensorReport), false))
+        .WillOnce([&](NodeId, uint8_t, const void* data, size_t, bool) {
+            captured_report = *static_cast<const farm::SolarSensorReport*>(data);
+            return ESP_OK;
+        });
+
+    EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0)).WillOnce(Return(pdTRUE));
+
+    sut_->process_cycle();
+
+    EXPECT_EQ(captured_report.battery_mv, 3700);
+    EXPECT_EQ(captured_report.battery_percent, 85);
+    EXPECT_EQ(captured_report.battery_state, farm::BatteryState::NORMAL);
+    EXPECT_EQ(captured_report.max_current_ma, 650);
+    EXPECT_EQ(captured_report.daily_yield_mah, 1200u);
+    EXPECT_FALSE(captured_report.is_night_mode);
+    EXPECT_EQ(captured_report.unix_time, 1700000000000ULL);
+}
+
+TEST_F(InaSensorTaskTest, ProcessCycleSendsZeroTimeWhenNotSynchronized)
+{
+    init_sut();
+
+    EXPECT_CALL(mock_time_, is_synchronized()).WillOnce(Return(false));
+
+    float read_current = 500.0f;
+    EXPECT_CALL(mock_driver_, read_current_ma(_))
+        .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
+    EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, read_alert_flags(_)).WillOnce(Return(ESP_OK));
+
+    farm::SolarSensorReport captured_report{};
+    EXPECT_CALL(mock_espnow_, send_data(ReservedIds::HUB, _, _, _, false))
+        .WillOnce([&](NodeId, uint8_t, const void* data, size_t, bool) {
+            captured_report = *static_cast<const farm::SolarSensorReport*>(data);
+            return ESP_OK;
+        });
+
+    EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0)).WillOnce(Return(pdTRUE));
+
+    sut_->process_cycle();
+
+    EXPECT_EQ(captured_report.unix_time, 0u);
 }
 
 TEST_F(InaSensorTaskTest, ProcessCycleReportingDisabledSuppressesEspNow)

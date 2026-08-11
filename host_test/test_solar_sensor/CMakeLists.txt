@@ -12,6 +12,7 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "../../components/time_manager"
     "../../components/power_control"
     "../../components/ina226_driver"
+    "../../components/battery_monitor"
     "../mocks"
     "../gtest"
     
@@ -31,6 +32,7 @@ set(COMPONENTS
     "time_manager"
     "power_control"
     "ina226_driver"
+    "battery_monitor"
     "udp_logger"
     "wifi_manager"
     "esp_timer"

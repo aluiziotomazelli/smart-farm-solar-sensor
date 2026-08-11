@@ -17,11 +17,15 @@ InaSensorTask::InaSensorTask(
     espnow::IEspNowManager& espnow,
     idf_hals::ITimerHAL& timer,
     idf_hals::IHalFreertos& rtos,
+    time_manager::ITimeManager& time_manager,
+    TelemetrySnapshot& snapshot,
     QueueHandle_t sample_queue)
     : driver_(driver)
     , espnow_(espnow)
     , timer_(timer)
     , rtos_(rtos)
+    , time_manager_(time_manager)
+    , snapshot_(snapshot)
     , sample_queue_(sample_queue)
 {
 }
@@ -258,6 +262,8 @@ void InaSensorTask::enqueue_sample(const InaSample& sample)
 
 esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
 {
+    TelemetrySnapshotData snap = snapshot_.get();
+
     farm::SolarSensorReport report{};
     report.power_profile = farm::PowerProfile::ALWAYS_ON;
     report.isc_current_ma = current_ma;
@@ -265,8 +271,14 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
     float ratio = (static_cast<float>(current_ma) / 700.0f);
     report.irradiance_wm2 = static_cast<uint16_t>(ratio * 1000.0f);
     report.estimated_power_w = static_cast<uint16_t>(ratio * 2640.0f);
+    report.battery_mv = snap.battery_mv;
+    report.battery_percent = snap.battery_percent;
+    report.battery_state = snap.battery_state;
     report.status = farm::SensorStatus::OK;
-    report.unix_time = timer_.get_time_us() / 1000;
+    report.max_current_ma = snap.max_current_ma;
+    report.daily_yield_mah = snap.daily_yield_mah;
+    report.is_night_mode = snap.is_night_mode;
+    report.unix_time = time_manager_.is_synchronized() ? time_manager_.get_timestamp_ms() : 0;
 
     return espnow_.send_data(
         espnow::ReservedIds::HUB,

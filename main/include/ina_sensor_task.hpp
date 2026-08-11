@@ -6,6 +6,8 @@
 #include "interfaces/i_espnow_manager.hpp"
 #include "interfaces/i_hal_timer.hpp"
 #include "interfaces/i_hal_freertos.hpp"
+#include "interfaces/i_time_manager.hpp"
+#include "telemetry_snapshot.hpp"
 
 namespace ina {
 
@@ -17,6 +19,8 @@ public:
         espnow::IEspNowManager& espnow,
         idf_hals::ITimerHAL& timer,
         idf_hals::IHalFreertos& rtos,
+        time_manager::ITimeManager& time_manager,
+        TelemetrySnapshot& snapshot,
         QueueHandle_t sample_queue);
 
     ~InaSensorTask() override;
@@ -46,6 +50,8 @@ private:
     espnow::IEspNowManager& espnow_;
     idf_hals::ITimerHAL& timer_;
     idf_hals::IHalFreertos& rtos_;
+    time_manager::ITimeManager& time_manager_;
+    TelemetrySnapshot& snapshot_;
     QueueHandle_t sample_queue_;
 
     InaSensorConfig config_{};

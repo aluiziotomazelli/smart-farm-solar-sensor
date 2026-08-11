@@ -19,6 +19,9 @@ idf_component_register(
         "../../../components/ina226_driver/include"
         "../../../components/ina226_driver/include/interfaces"
         "../../../components/ina226_driver/mocks"
+        "../../../components/battery_monitor/include"
+        "../../../components/battery_monitor/include/interfaces"
+        "../../../components/battery_monitor/host_test/mocks"
     REQUIRES 
         gtest
         smart-farm-common
@@ -29,6 +32,7 @@ idf_component_register(
         time_manager
         power_control
         ina226_driver
+        battery_monitor
         WHOLE_ARCHIVE
 )
 

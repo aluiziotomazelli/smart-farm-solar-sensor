@@ -33,6 +33,7 @@
 #include "hal_i2c.hpp"
 #include "ina226_driver.hpp"
 #include "ina_sensor_task.hpp"
+#include "telemetry_snapshot.hpp"
 
 #include "secrets.hpp"
 
@@ -119,6 +120,7 @@ static ButtonOtaTrigger btn_trigger(hal_gpio, hal_freertos, BOOT_BUTTON_GPIO, 20
 static EspNowOtaTrigger espnow_ota_trigger;
 
 static time_manager::TimeManager time_mgr{hal_sntp, hal_sys_time};
+static TelemetrySnapshot g_telemetry_snapshot;
 
 extern "C" void app_main()
 {
@@ -133,12 +135,15 @@ extern "C" void app_main()
     auto& espnow = espnow::EspNowManager::instance();
 
     // Instantiate INA Sensor Task (power control managed by the app, not the task)
-    ina::InaSensorTask ina_task{ina_driver, espnow, hal_timer, hal_freertos, ina_sample_queue};
+    ina::InaSensorTask ina_task{
+        ina_driver, espnow, hal_timer, hal_freertos, time_mgr, g_telemetry_snapshot, ina_sample_queue};
 
     // Instantiate app with dependencies
     SolarSensor solar(
         ina_task,
         ina_sample_queue,
+        g_telemetry_snapshot,
+        bat_monitor,
         nvs_core,
         nvs_solar,
         hal_timer,

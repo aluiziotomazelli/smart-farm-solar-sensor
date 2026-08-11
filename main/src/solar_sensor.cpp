@@ -31,6 +31,8 @@ static constexpr InaSensorConfig ina_config = {
 SolarSensor::SolarSensor(
     ina::IInaSensorTask& ina_sensor_task,
     QueueHandle_t ina_sample_queue,
+    TelemetrySnapshot& telemetry_snapshot,
+    battery_monitor::IBatteryMonitor& bat_monitor,
     INvsCore& core_storage,
     ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
@@ -48,6 +50,8 @@ SolarSensor::SolarSensor(
     idf_hals::II2cHAL& hal_i2c)
     : ina_sensor_task_(ina_sensor_task)
     , ina_sample_queue_(ina_sample_queue)
+    , telemetry_snapshot_(telemetry_snapshot)
+    , bat_monitor_(bat_monitor)
     , core_storage_(core_storage)
     , solar_storage_(solar_storage)
     , hal_timer_(hal_timer)
@@ -101,25 +105,31 @@ esp_err_t SolarSensor::init()
         session_healthy_ = false;
     }
 
-    // 4. Initialize esp-now
+    // 4. Initialize Battery Monitor
+    if ((err = bat_monitor_.init()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize BatteryMonitor: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // 5. Initialize esp-now
     if ((err = init_espnow()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize esp-now: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 5. Initialize INA VCC pin
+    // 6. Initialize INA VCC pin
     if ((err = init_ina_vcc_pin()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA VCC pin: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 6. Initialize INA task
+    // 7. Initialize INA task
     if ((err = init_ina_task(ina_config)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA Sensor Task: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 7. Attach the INA ALERT GPIO ISR: the task wakes on every completed
+    // 8. Attach the INA ALERT GPIO ISR: the task wakes on every completed
     // conversion (CNVR armed by InaSensorTask::init()). Must run after start()
     // so the ISR receives a valid task handle.
     if ((err = init_ina_alert_pin()) != ESP_OK) {
@@ -150,6 +160,26 @@ void SolarSensor::on_ota_triggered(OtaTriggerSource source)
 {
     ESP_LOGI(TAG, "OTA triggered from source: %d", static_cast<int>(source));
     ota_triggered_ = true;
+}
+
+esp_err_t SolarSensor::update_battery_snapshot()
+{
+    battery_monitor::BatteryReading reading{};
+    esp_err_t err = bat_monitor_.read(reading);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read battery monitor: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    farm::BatteryState bat_state = static_cast<farm::BatteryState>(reading.state);
+
+    telemetry_snapshot_.update_battery(reading.voltage_mv, reading.percent, bat_state);
+
+    stats_.last_battery_mv = reading.voltage_mv;
+    stats_.last_battery_percent = reading.percent;
+    stats_.last_battery_state = bat_state;
+
+    return ESP_OK;
 }
 
 // ===================================================================
@@ -226,6 +256,10 @@ esp_err_t SolarSensor::init_solar_storage()
     esp_err_t ret = solar_storage_.load_app_data(stats_);
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Loaded solar stats from storage");
+        telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
+        telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
+        telemetry_snapshot_.update_battery(
+            stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
         return ESP_OK;
     }
 
@@ -233,6 +267,10 @@ esp_err_t SolarSensor::init_solar_storage()
     stats_.reset();
     ret = solar_storage_.save_app_data(stats_, /*force_nvs_commit=*/true);
     if (ret == ESP_OK) {
+        telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
+        telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
+        telemetry_snapshot_.update_battery(
+            stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
         return ESP_OK;
     }
 
@@ -435,6 +473,7 @@ void SolarSensor::process_ina_samples()
         consecutive_ina_errors_ = 0;
         if (sample.isc_current_ma > stats_.max_current_ma) {
             stats_.max_current_ma = sample.isc_current_ma;
+            telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
             pending_solar_commit_ = true;
         }
     }

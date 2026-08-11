@@ -17,8 +17,10 @@
 #include "interfaces/i_hal_i2c.hpp"
 
 #include "interfaces/i_ina_sensor_task.hpp"
+#include "interfaces/i_battery_monitor.hpp"
 
 #include "solar_sensor_stats.hpp"
+#include "telemetry_snapshot.hpp"
 
 /**
  * @class SolarSensor
@@ -30,6 +32,8 @@ public:
     SolarSensor(
         ina::IInaSensorTask& ina_sensor_task,
         QueueHandle_t ina_sample_queue,
+        TelemetrySnapshot& telemetry_snapshot,
+        battery_monitor::IBatteryMonitor& bat_monitor,
         INvsCore& core_storage,
         ISolarSensorNvs& solar_storage,
         idf_hals::ITimerHAL& hal_timer,
@@ -54,6 +58,8 @@ public:
     /** @copydoc IOtaTriggerListener::on_ota_triggered */
     void on_ota_triggered(OtaTriggerSource source) override;
 
+    esp_err_t update_battery_snapshot();
+
 protected:
     CoreStorage core_;
     SolarStats stats_;
@@ -66,6 +72,8 @@ protected:
 private:
     ina::IInaSensorTask& ina_sensor_task_;
     QueueHandle_t ina_sample_queue_;
+    TelemetrySnapshot& telemetry_snapshot_;
+    battery_monitor::IBatteryMonitor& bat_monitor_;
     INvsCore& core_storage_;
     ISolarSensorNvs& solar_storage_;
     idf_hals::ITimerHAL& hal_timer_;
