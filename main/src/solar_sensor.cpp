@@ -6,6 +6,7 @@
 
 #define LOG_LOCAL_LEVEL ESP_LOG_INFO
 #include "esp_log.h"
+#include "esp_intr_alloc.h"
 
 static const char* TAG = "SolarSensor";
 
@@ -115,6 +116,14 @@ esp_err_t SolarSensor::init()
     // 6. Initialize INA task
     if ((err = init_ina_task(ina_config)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA Sensor Task: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+
+    // 7. Attach the INA ALERT GPIO ISR: the task wakes on every completed
+    // conversion (CNVR armed by InaSensorTask::init()). Must run after start()
+    // so the ISR receives a valid task handle.
+    if ((err = init_ina_alert_pin()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize INA alert pin: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
@@ -455,7 +464,14 @@ esp_err_t SolarSensor::recover_ina_hardware()
     hal_gpio_.set_level(INA_VCC_GPIO, 1);
     hal_rtos_.task_delay(pdMS_TO_TICKS(10));
 
-    return init_ina_task(ina_config);
+    esp_err_t err = init_ina_task(ina_config);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    // The task was recreated with a new handle: re-attach the ALERT ISR so it
+    // notifies the new task (init_ina_alert_pin() drops any stale registration).
+    return init_ina_alert_pin();
 }
 
 esp_err_t SolarSensor::init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_handle)
@@ -505,11 +521,28 @@ esp_err_t SolarSensor::init_ina_vcc_pin()
 
 void SolarSensor::enter_deep_sleep()
 {
+    // Arm the night regime before sleeping. Without it the conversion-ready
+    // alert (CNVR) stays armed, so the INA asserts the ALERT pin on every
+    // conversion and the MCU would wake in a tight loop. On failure, abort
+    // the sleep instead — the app watchdog handles the error.
+    esp_err_t err = ina_sensor_task_.prepare_for_sleep();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to prepare INA for sleep (%s), aborting deep sleep", esp_err_to_name(err));
+        return;
+    }
+
     ESP_LOGI(TAG, "Entering deep sleep...");
 
     constexpr uint64_t sleep_time = DEEP_SLEEP_TIME_MIN * 60ULL * 1000000ULL;
     hal_sleep_.enable_timer_wakeup(sleep_time);
-    hal_sleep_.deep_sleep_enable_gpio_wakeup(1ULL << INA_ALERT_GPIO, idf_hals::GpioWakeupMode::LOW_LEVEL);
+
+    // GPIO wakeup on ALERT going LOW: the INA (SHUNT_OVER_VOLTAGE alert armed
+    // by prepare_for_sleep()) asserts the pin at dawn. The timer is the
+    // fallback if the GPIO wakeup cannot be armed.
+    err = hal_sleep_.deep_sleep_enable_gpio_wakeup(1ULL << INA_ALERT_GPIO, idf_hals::GpioWakeupMode::LOW_LEVEL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable GPIO wakeup (%s), timer fallback only", esp_err_to_name(err));
+    }
 
     hal_sleep_.deep_sleep_start();
 }
@@ -530,9 +563,20 @@ esp_err_t SolarSensor::init_ina_alert_pin()
         return err;
     }
 
-    err = hal_gpio_.install_isr_service(0);
+    // Allocate the ISR from IRAM so it can fire while the flash cache is
+    // disabled (e.g. during NVS commits) — the handler itself is IRAM_ATTR.
+    err = hal_gpio_.install_isr_service(ESP_INTR_FLAG_IRAM);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "Failed to install INA alert GPIO ISR service: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    // Drop any previous registration first: after a recovery the task is
+    // recreated with a new handle, so the ISR must be re-attached with the
+    // fresh handle instead of notifying a deleted task.
+    err = hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to remove stale INA alert GPIO ISR: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -550,10 +594,11 @@ esp_err_t SolarSensor::init_ina_alert_pin()
  *
  * @param arg Task handle to be notified
  *
- * @note This ISR runs in IRAM for fast execution and notifies the button task.
- * It uses DRAM logging to avoid flash access during interrupt handling.
+ * @note This ISR runs in IRAM for fast execution and notifies the INA sensor
+ * task on every completed conversion (CNVR). It uses DRAM logging to avoid
+ * flash access during interrupt handling.
  */
-static void IRAM_ATTR ina_alert_isr_handler(void* arg)
+void IRAM_ATTR SolarSensor::ina_alert_isr_handler(void* arg)
 {
     TaskHandle_t task_handle = static_cast<TaskHandle_t>(arg);
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;

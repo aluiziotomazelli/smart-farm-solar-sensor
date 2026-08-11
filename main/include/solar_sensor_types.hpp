@@ -10,7 +10,7 @@
 static constexpr gpio_num_t BATTERY_LEVEL_GPIO = GPIO_NUM_2; // D1
 static constexpr gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_9;   // D9 - Boot button
 static constexpr gpio_num_t INA_VCC_GPIO = GPIO_NUM_5;       // D3 - INA VCC Power Control
-static constexpr gpio_num_t INA_ALERT_GPIO = GPIO_NUM_10;    // D10
+static constexpr gpio_num_t INA_ALERT_GPIO = GPIO_NUM_3; // INA ALERT (C3: only GPIO0-5 wake from deep sleep)
 static constexpr gpio_num_t I2C_SDA_GPIO = GPIO_NUM_6;       // D4
 static constexpr gpio_num_t I2C_SCL_GPIO = GPIO_NUM_7;       // D5
 
