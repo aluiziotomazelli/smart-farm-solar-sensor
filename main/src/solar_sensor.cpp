@@ -12,19 +12,19 @@ static const char* TAG = "SolarSensor";
 static constexpr uint16_t DEEP_SLEEP_TIME_MIN = 60;
 
 // ============== INA226 Config ==============
-static constexpr InaModeConfig day_config = {
-    .vsh_ct = ina226::ConversionTime::CT_1100US,
-    .vbus_ct = ina226::ConversionTime::CT_1100US,
-    .avg_mode = ina226::AveragingMode::AVG_64,
-    .alert_flag = ina226::AlertFlag::CONVERSION_READY,
-    .alert_limit = 0,
-};
+// The daytime regime is the default and lives in the Ina226Driver construction
+// (main.cpp); InaSensorTask::init() arms the conversion-ready alert (CNVR).
+// Only the night (sleep) conversion settings are overridden here.
 static constexpr InaSensorConfig ina_config = {
-    .sample_interval_ms = 125,
     .delta_threshold_ma = 10,
     .delta_threshold_percent = 0.03f,
     .heartbeat_interval_ms = 1000,
-    .day_config = day_config,
+    .night_config =
+        {
+            .vsh_ct = ina226::ConversionTime::CT_8244US,
+            .vbus_ct = ina226::ConversionTime::CT_8244US,
+            .avg_mode = ina226::AveragingMode::AVG_64,
+        },
 };
 
 SolarSensor::SolarSensor(
@@ -394,8 +394,10 @@ void SolarSensor::process_ina_samples()
         return;
     }
 
-    bool is_daytime = (ina_sensor_task_.get_operating_mode() == SolarNodeState::DAY_ACTIVE);
-    uint32_t timeout_ms = is_daytime ? ina_sensor_task_.get_watchdog_timeout_ms() : 0;
+    // Sampling enabled == active regime: the app only expects (and watches)
+    // periodic samples while sampling is on. prepare_for_sleep() disables it.
+    bool sampling_active = ina_sensor_task_.is_sampling_enabled();
+    uint32_t timeout_ms = sampling_active ? ina_sensor_task_.get_watchdog_timeout_ms() : 0;
 
     InaSample sample{};
     if (hal_rtos_.queue_receive(ina_sample_queue_, &sample, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
@@ -427,7 +429,7 @@ void SolarSensor::process_ina_samples()
             pending_solar_commit_ = true;
         }
     }
-    else if (is_daytime) {
+    else if (sampling_active) {
         ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>%ums without sample)! Resetting system...", timeout_ms);
         hal_system_.restart();
     }
@@ -560,7 +562,5 @@ static void IRAM_ATTR ina_alert_isr_handler(void* arg)
         vTaskNotifyGiveFromISR(task_handle, &xHigherPriorityTaskWoken);
     }
 
-    if (xHigherPriorityTaskWoken == pdTRUE) {
-        portYIELD_FROM_ISR();
-    }
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }

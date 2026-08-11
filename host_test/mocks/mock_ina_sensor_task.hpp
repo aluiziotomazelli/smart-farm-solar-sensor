@@ -13,10 +13,11 @@ public:
     MOCK_METHOD(void, stop, (), (override));
     MOCK_METHOD(void, set_reporting_enabled, (bool enabled), (override));
     MOCK_METHOD(void, set_sampling_enabled, (bool enabled), (override));
-    MOCK_METHOD(esp_err_t, set_operating_mode, (SolarNodeState mode), (override));
-    MOCK_METHOD(SolarNodeState, get_operating_mode, (), (const, override));
+    MOCK_METHOD(esp_err_t, prepare_for_sleep, (), (override));
+    MOCK_METHOD(bool, is_sampling_enabled, (), (const, override));
     MOCK_METHOD(uint32_t, get_expected_sample_period_ms, (), (const, override));
     MOCK_METHOD(uint32_t, get_watchdog_timeout_ms, (), (const, override));
+    MOCK_METHOD(TaskHandle_t, get_task_handle, (), (const, override));
 };
 
 } // namespace ina

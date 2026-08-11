@@ -8,10 +8,11 @@
 #include "mock_hal_freertos.hpp"
 
 using ::testing::_;
+using ::testing::DoAll;
 using ::testing::NiceMock;
 using ::testing::Return;
+using ::testing::ReturnRef;
 using ::testing::SetArgReferee;
-using ::testing::DoAll;
 
 using namespace ina;
 using namespace ina226;
@@ -21,6 +22,10 @@ using namespace idf_hals;
 // Sentinel null bus handle used in unit tests (mock driver never dereferences it)
 static constexpr i2c_master_bus_handle_t NULL_BUS = nullptr;
 
+// CNVR (ALERT_ON_CONVERSION_READY, bit 10) — the day-regime alert mask armed at init.
+// Unlike CVRF (bit 3) it actually asserts the ALERT pin on every conversion.
+static constexpr uint16_t CNVR_ALERT_MASK = static_cast<uint16_t>(AlertFlag::ALERT_ON_CONVERSION_READY);
+
 class InaSensorTaskTest : public ::testing::Test
 {
 protected:
@@ -28,6 +33,8 @@ protected:
     NiceMock<MockEspNowManager> mock_espnow_;
     NiceMock<MockTimerHAL> mock_timer_;
     NiceMock<MockHalFreertos> mock_rtos_;
+
+    ina226::Ina226Config base_config_;
 
     QueueHandle_t dummy_queue_ = reinterpret_cast<QueueHandle_t>(0x1234);
 
@@ -46,8 +53,10 @@ protected:
 
     void init_sut(InaSensorConfig config = {})
     {
-        // init(bus_handle) binds the driver to the I2C bus — mocked, handle is ignored
+        // init(bus_handle) binds the driver to the I2C bus — mocked, handle is ignored.
+        // On success it must also arm the day-regime conversion-ready alert (CNVR).
         EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
+        EXPECT_CALL(mock_driver_, configure_alert(CNVR_ALERT_MASK, 0)).WillOnce(Return(ESP_OK));
         EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
         sut_->init(config, NULL_BUS);
     }
@@ -56,18 +65,31 @@ protected:
 TEST_F(InaSensorTaskTest, InitSuccess)
 {
     EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, configure_alert(CNVR_ALERT_MASK, 0)).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_timer_, get_time_us()).WillOnce(Return(1000000));
 
     InaSensorConfig config{};
     EXPECT_EQ(sut_->init(config, NULL_BUS), ESP_OK);
+    EXPECT_TRUE(sut_->is_sampling_enabled());
+    EXPECT_TRUE(sut_->is_reporting_enabled());
 }
 
 TEST_F(InaSensorTaskTest, InitDriverFailure)
 {
     EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_ERR_TIMEOUT));
+    EXPECT_CALL(mock_driver_, configure_alert(_, _)).Times(0);
 
     InaSensorConfig config{};
     EXPECT_EQ(sut_->init(config, NULL_BUS), ESP_ERR_TIMEOUT);
+}
+
+TEST_F(InaSensorTaskTest, InitAlertConfigFailure)
+{
+    EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, configure_alert(CNVR_ALERT_MASK, 0)).WillOnce(Return(ESP_ERR_INVALID_STATE));
+
+    InaSensorConfig config{};
+    EXPECT_EQ(sut_->init(config, NULL_BUS), ESP_ERR_INVALID_STATE);
 }
 
 TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
@@ -80,6 +102,8 @@ TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
         .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
     EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_))
         .WillOnce(DoAll(SetArgReferee<0>(read_bus), Return(ESP_OK)));
+    EXPECT_CALL(mock_driver_, read_alert_flags(_))
+        .WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
     EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
     EXPECT_CALL(mock_espnow_, send_data(ReservedIds::HUB, _, _, _, false))
         .WillOnce(Return(ESP_OK));
@@ -97,6 +121,8 @@ TEST_F(InaSensorTaskTest, ProcessCycleReportingDisabledSuppressesEspNow)
     float read_current = 500.0f;
     EXPECT_CALL(mock_driver_, read_current_ma(_))
         .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
+    EXPECT_CALL(mock_driver_, read_alert_flags(_))
+        .WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
     EXPECT_CALL(mock_espnow_, send_data(_, _, _, _, _)).Times(0);
     EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0))
         .WillOnce(Return(pdTRUE));
@@ -122,6 +148,9 @@ TEST_F(InaSensorTaskTest, ReadErrorEnqueuesSampleWithErrorStatus)
 
     EXPECT_CALL(mock_driver_, read_current_ma(_)).WillOnce(Return(ESP_ERR_TIMEOUT));
 
+    // Alert flags are only acknowledged after a successful read.
+    EXPECT_CALL(mock_driver_, read_alert_flags(_)).Times(0);
+
     // Sample must be enqueued even on error, so the app can count failures
     InaSample captured_sample{};
     EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0))
@@ -135,36 +164,52 @@ TEST_F(InaSensorTaskTest, ReadErrorEnqueuesSampleWithErrorStatus)
     EXPECT_EQ(captured_sample.status, ESP_ERR_TIMEOUT);
 }
 
-TEST_F(InaSensorTaskTest, SetOperatingModeDayActiveConfiguresAlertConversionReady)
+TEST_F(InaSensorTaskTest, PrepareForSleepAppliesNightConfigAndArmsDawnAlert)
 {
-    EXPECT_CALL(mock_driver_, configure_alert(static_cast<uint16_t>(AlertFlag::CONVERSION_READY), 0))
+    // Base values that must be preserved through the night switch
+    base_config_.r_shunt_ohms = 0.05f;
+    base_config_.max_expected_current_a = 1.0f;
+    base_config_.mode = OperatingMode::SHUNT_AND_BUS_CONTINUOUS;
+    base_config_.avg_mode = AveragingMode::AVG_64;
+    base_config_.vbus_ct = ConversionTime::CT_1100US;
+    base_config_.vsh_ct = ConversionTime::CT_1100US;
+
+    ina226::Ina226Config captured{};
+    EXPECT_CALL(mock_driver_, get_config()).WillRepeatedly(ReturnRef(base_config_));
+    EXPECT_CALL(mock_driver_, set_config(_))
+        .WillOnce([&](const ina226::Ina226Config& cfg) {
+            captured = cfg;
+            return ESP_OK;
+        });
+    EXPECT_CALL(mock_driver_, configure_alert(
+        static_cast<uint16_t>(AlertFlag::SHUNT_OVER_VOLTAGE), DEFAULT_DAWN_WAKEUP_ALERT_LIMIT))
         .WillOnce(Return(ESP_OK));
 
-    EXPECT_EQ(sut_->set_operating_mode(SolarNodeState::DAY_ACTIVE), ESP_OK);
-    EXPECT_EQ(sut_->get_operating_mode(), SolarNodeState::DAY_ACTIVE);
-    EXPECT_TRUE(sut_->is_sampling_enabled());
-}
-
-TEST_F(InaSensorTaskTest, SetOperatingModeNightSleepConfiguresAlertShuntOverVoltage)
-{
-    EXPECT_CALL(mock_driver_, configure_alert(static_cast<uint16_t>(AlertFlag::SHUNT_OVER_VOLTAGE), 12))
-        .WillOnce(Return(ESP_OK));
-
-    EXPECT_EQ(sut_->set_operating_mode(SolarNodeState::NIGHT_SLEEP), ESP_OK);
-    EXPECT_EQ(sut_->get_operating_mode(), SolarNodeState::NIGHT_SLEEP);
+    EXPECT_EQ(sut_->prepare_for_sleep(), ESP_OK);
     EXPECT_FALSE(sut_->is_sampling_enabled());
+    EXPECT_FALSE(sut_->is_reporting_enabled());
+
+    // Night regime uses slow conversions (CT_8244US) to save power; base fields preserved
+    EXPECT_EQ(captured.avg_mode, AveragingMode::AVG_64);
+    EXPECT_EQ(captured.vbus_ct, ConversionTime::CT_8244US);
+    EXPECT_EQ(captured.vsh_ct, ConversionTime::CT_8244US);
+    EXPECT_EQ(captured.r_shunt_ohms, 0.05f);
+    EXPECT_EQ(captured.max_expected_current_a, 1.0f);
+    EXPECT_EQ(captured.mode, OperatingMode::SHUNT_AND_BUS_CONTINUOUS);
 }
 
-TEST_F(InaSensorTaskTest, DynamicSamplePeriodAndWatchdogTimeoutCalculation)
+TEST_F(InaSensorTaskTest, SamplePeriodAndWatchdogTimeoutFromActiveDriverConfig)
 {
-    InaSensorConfig config{};
-    config.day_config.vsh_ct = ConversionTime::CT_1100US;
-    config.day_config.vbus_ct = ConversionTime::CT_1100US;
-    config.day_config.avg_mode = AveragingMode::AVG_64;
+    // Day regime conversion settings as configured in the driver (main.cpp)
+    base_config_.avg_mode = AveragingMode::AVG_64;
+    base_config_.vbus_ct = ConversionTime::CT_1100US;
+    base_config_.vsh_ct = ConversionTime::CT_1100US;
 
     EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, configure_alert(CNVR_ALERT_MASK, 0)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, get_config()).WillRepeatedly(ReturnRef(base_config_));
     EXPECT_CALL(mock_timer_, get_time_us()).WillOnce(Return(0));
-    sut_->init(config, NULL_BUS);
+    sut_->init(InaSensorConfig{}, NULL_BUS);
 
     // Period: (1100 + 1100) * 64 / 1000 = 140 ms
     EXPECT_EQ(sut_->get_expected_sample_period_ms(), 140u);

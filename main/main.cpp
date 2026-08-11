@@ -61,7 +61,16 @@ static idf_hals::HalSystemTime hal_sys_time;
 static idf_hals::HalSntp hal_sntp;
 
 // INA226 Driver
-static ina226::Ina226Driver ina_driver{hal_i2c};
+// The daytime regime is the default: build the driver with the day conversion
+// settings so init() applies them on every boot (and after INA recovery).
+// InaSensorTask::init() arms the conversion-ready alert (CNVR); the night
+// regime is applied only by InaSensorTask::prepare_for_sleep().
+static constexpr ina226::Ina226Config ina_day_config = {
+    .avg_mode = ina226::AveragingMode::AVG_64,
+    .vbus_ct = ina226::ConversionTime::CT_1100US,
+    .vsh_ct = ina226::ConversionTime::CT_1100US,
+};
+static ina226::Ina226Driver ina_driver{hal_i2c, ina_day_config};
 
 // BatteryMonitor
 static battery_monitor::BatteryAdcConfig adc_config = {

@@ -18,6 +18,7 @@ idf_component_register(
         "../../../components/power_control/include/interfaces"
         "../../../components/ina226_driver/include"
         "../../../components/ina226_driver/include/interfaces"
+        "../../../components/ina226_driver/mocks"
     REQUIRES 
         gtest
         smart-farm-common
