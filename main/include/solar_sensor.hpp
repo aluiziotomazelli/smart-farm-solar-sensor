@@ -19,6 +19,7 @@
 #include "interfaces/i_ina_sensor_task.hpp"
 #include "interfaces/i_battery_monitor.hpp"
 #include "command_handler.hpp"
+#include "day_night_controller.hpp"
 
 #include "solar_sensor_stats.hpp"
 #include "telemetry_snapshot.hpp"
@@ -62,6 +63,7 @@ public:
     esp_err_t update_battery_snapshot();
 
     CommandHandler& get_command_handler() { return command_handler_; }
+    DayNightController& get_day_night_controller() { return day_night_controller_; }
 
 protected:
     CoreStorage core_;
@@ -93,6 +95,7 @@ private:
     idf_hals::IGpioHAL& hal_gpio_;
     idf_hals::II2cHAL& hal_i2c_;
     CommandHandler command_handler_;
+    DayNightController day_night_controller_;
 
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;

@@ -18,6 +18,12 @@
  */
 static constexpr uint16_t DEFAULT_DAWN_WAKEUP_ALERT_LIMIT = 12;
 
+/// Corrente abaixo da qual o node considera que é entardecer (dusk).
+static constexpr uint16_t DEFAULT_DUSK_CURRENT_MA = 1;
+
+/// Corrente acima da qual o node considera que é dia (dawn threshold em mA).
+static constexpr uint16_t DEFAULT_DAWN_CURRENT_THRESHOLD_MA = 5;
+
 struct InaSample
 {
     uint16_t isc_current_ma = 0; ///< Instantaneous short-circuit current in mA

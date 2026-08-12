@@ -5,10 +5,12 @@ idf_component_register(
         "test_solar_sensor_nvs.cpp"
         "test_ina_sensor_task.cpp"
         "test_command_handler.cpp"
+        "test_day_night_controller.cpp"
         "../../../main/src/solar_sensor.cpp"
         "../../../main/src/solar_sensor_nvs.cpp"
         "../../../main/src/ina_sensor_task.cpp"
         "../../../main/src/command_handler.cpp"
+        "../../../main/src/day_night_controller.cpp"
     INCLUDE_DIRS 
         "."
         "../../mocks"
