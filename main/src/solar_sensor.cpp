@@ -67,12 +67,17 @@ SolarSensor::SolarSensor(
     , hal_rtos_(hal_freertos)
     , hal_gpio_(hal_gpio)
     , hal_i2c_(hal_i2c)
+    , command_handler_(rx_queue_, espnow_, time_manager_, espnow_trigger_, hal_system_, core_, hal_rtos_)
 {
 }
 
 esp_err_t SolarSensor::init()
 {
     esp_err_t err;
+
+    // Arm OTA triggers
+    btn_trigger_.arm(*this);
+    espnow_trigger_.arm(*this);
 
     // 1. OTA Manager first to handle OTA updates
     if ((err = init_ota()) != ESP_OK) {
@@ -153,6 +158,7 @@ esp_err_t SolarSensor::init()
 esp_err_t SolarSensor::run()
 {
     ESP_LOGI(TAG, "SolarSensor running");
+    command_handler_.process();
     return ESP_OK;
 }
 

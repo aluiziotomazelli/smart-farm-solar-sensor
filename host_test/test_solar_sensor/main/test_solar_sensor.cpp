@@ -44,6 +44,7 @@ class MockOtaTrigger : public IOtaTrigger
 public:
     MOCK_METHOD(esp_err_t, arm, (IOtaTriggerListener& listener), (override));
     MOCK_METHOD(void, disarm, (), (override));
+    MOCK_METHOD(void, notify, (), (override));
 };
 
 class MockWiFiManager : public wifi_manager::IWiFiManager

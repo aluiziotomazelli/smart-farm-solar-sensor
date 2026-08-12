@@ -4,6 +4,7 @@ idf_component_register(
         "src/solar_sensor.cpp"
         "src/solar_sensor_nvs.cpp"
         "src/ina_sensor_task.cpp"
+        "src/command_handler.cpp"
     INCLUDE_DIRS
         "include"
         "include/interfaces"
