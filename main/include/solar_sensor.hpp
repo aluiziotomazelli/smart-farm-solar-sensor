@@ -5,7 +5,6 @@
 #include "interfaces/i_nvs_core.hpp"
 #include "interfaces/i_solar_sensor_nvs.hpp"
 #include "interfaces/i_hal_timer.hpp"
-#include "interfaces/i_ota_manager.hpp"
 #include "interfaces/i_ota_trigger.hpp"
 #include "interfaces/i_wifi_manager.hpp"
 #include "interfaces/i_espnow_manager.hpp"
@@ -20,6 +19,7 @@
 #include "interfaces/i_battery_monitor.hpp"
 #include "command_handler.hpp"
 #include "day_night_controller.hpp"
+#include "ota_controller.hpp"
 
 #include "solar_sensor_stats.hpp"
 #include "telemetry_snapshot.hpp"
@@ -39,7 +39,7 @@ public:
         INvsCore& core_storage,
         ISolarSensorNvs& solar_storage,
         idf_hals::ITimerHAL& hal_timer,
-        IOtaManager& ota_manager,
+        OtaController& ota_controller,
         IOtaTrigger& btn_trigger,
         IOtaTrigger& espnow_trigger,
         espnow::IEspNowManager& espnow,
@@ -75,7 +75,6 @@ protected:
     SolarStats stats_;
 
     bool session_healthy_ = true;
-    bool pending_firmware_verify_ = false;
     bool pending_core_commit_ = false;
     bool pending_solar_commit_ = false;
 
@@ -87,7 +86,7 @@ private:
     INvsCore& core_storage_;
     ISolarSensorNvs& solar_storage_;
     idf_hals::ITimerHAL& hal_timer_;
-    IOtaManager& ota_manager_;
+    OtaController& ota_controller_;
     IOtaTrigger& btn_trigger_;
     IOtaTrigger& espnow_trigger_;
     espnow::IEspNowManager& espnow_;
@@ -109,7 +108,6 @@ private:
 
     esp_err_t init_ina_task(InaSensorConfig config);
     esp_err_t init_ina_vcc_pin();
-    esp_err_t init_ota();
     esp_err_t init_wifi();
     esp_err_t init_time();
     esp_err_t init_core_storage();
@@ -117,7 +115,7 @@ private:
     esp_err_t init_espnow();
     esp_err_t init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_handle);
 
-    void check_firmware();
+    void process_pending_ota();
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
     esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     void save_persistent_state();

@@ -6,11 +6,13 @@ idf_component_register(
         "test_ina_sensor_task.cpp"
         "test_command_handler.cpp"
         "test_day_night_controller.cpp"
+        "test_ota_controller.cpp"
         "../../../main/src/solar_sensor.cpp"
         "../../../main/src/solar_sensor_nvs.cpp"
         "../../../main/src/ina_sensor_task.cpp"
         "../../../main/src/command_handler.cpp"
         "../../../main/src/day_night_controller.cpp"
+        "../../../main/src/ota_controller.cpp"
     INCLUDE_DIRS 
         "."
         "../../mocks"
@@ -26,6 +28,7 @@ idf_component_register(
         "../../../components/battery_monitor/include"
         "../../../components/battery_monitor/include/interfaces"
         "../../../components/battery_monitor/host_test/mocks"
+        "../../../components/ota_manager/host_test/mocks"
     REQUIRES 
         gtest
         smart-farm-common

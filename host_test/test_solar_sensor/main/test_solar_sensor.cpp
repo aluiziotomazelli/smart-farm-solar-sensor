@@ -17,27 +17,13 @@
 #include "mock_hal_freertos.hpp"
 #include "mock_hal_gpio.hpp"
 #include "mock_hal_i2c.hpp"
+#include "mock_ota_manager.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::SetArgReferee;
-
-class MockOtaManager : public IOtaManager
-{
-public:
-    MOCK_METHOD(bool, init, (const OtaConfig& config), (override));
-    MOCK_METHOD(bool, deinit, (), (override));
-    MOCK_METHOD(bool, start_ota, (), (override));
-    MOCK_METHOD(void, cancel_ota, (), (override));
-    MOCK_METHOD(OtaStatus, get_status, (), (const, override));
-    MOCK_METHOD(OtaFailReason, get_last_error, (), (const, override));
-    MOCK_METHOD(std::optional<OtaVersion>, get_running_version, (), (const, override));
-    MOCK_METHOD(bool, check_pending_verify, (), (const, override));
-    MOCK_METHOD(bool, confirm_app_valid, (), (override));
-    MOCK_METHOD(void, rollback_and_reboot, (), (override));
-};
 
 class MockOtaTrigger : public IOtaTrigger
 {
@@ -90,6 +76,7 @@ protected:
 
     NiceMock<idf_hals::MockTimerHAL> hal_timer_;
     NiceMock<MockOtaManager> ota_manager_;
+    OtaController ota_controller_{ota_manager_, hal_rtos_};
     NiceMock<MockOtaTrigger> btn_trigger_;
     NiceMock<MockOtaTrigger> espnow_trigger_;
     NiceMock<espnow::MockEspNowManager> espnow_;
@@ -122,7 +109,7 @@ protected:
             core_storage_,
             solar_storage_,
             hal_timer_,
-            ota_manager_,
+            ota_controller_,
             btn_trigger_,
             espnow_trigger_,
             espnow_,
@@ -159,7 +146,9 @@ TEST_F(SolarSensorTest, RunProcessesOtaTriggerWhenSet)
 {
     sut_->on_ota_triggered(OtaTriggerSource::BUTTON);
 
-    EXPECT_CALL(espnow_trigger_, notify()).Times(1);
+    EXPECT_CALL(btn_trigger_, disarm()).Times(1);
+    EXPECT_CALL(espnow_trigger_, disarm()).Times(1);
+    EXPECT_CALL(mock_ina_task_, stop()).Times(1);
 
     EXPECT_TRUE(sut_->run());
 }

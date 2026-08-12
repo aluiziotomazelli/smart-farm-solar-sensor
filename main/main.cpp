@@ -24,6 +24,7 @@
 #include "battery_monitor.hpp"
 #include "adc_battery_reader.hpp"
 #include "ota_manager.hpp"
+#include "ota_controller.hpp"
 #include "button_ota_trigger.hpp"
 #include "espnow_ota_trigger.hpp"
 #include "espnow_manager.hpp"
@@ -114,6 +115,7 @@ static OtaDependencies ota_deps = {
     .rollback_manager = rollback_manager,
 };
 static OtaManager ota_manager(ota_deps);
+static OtaController ota_controller(ota_manager, hal_freertos);
 
 // OTA triggers: boot button + espnow
 static ButtonOtaTrigger btn_trigger(hal_gpio, hal_freertos, BOOT_BUTTON_GPIO, 200);
@@ -147,7 +149,7 @@ extern "C" void app_main()
         nvs_core,
         nvs_solar,
         hal_timer,
-        ota_manager,
+        ota_controller,
         btn_trigger,
         espnow_ota_trigger,
         espnow,

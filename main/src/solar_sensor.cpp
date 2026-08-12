@@ -36,7 +36,7 @@ SolarSensor::SolarSensor(
     INvsCore& core_storage,
     ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
-    IOtaManager& ota_manager,
+    OtaController& ota_controller,
     IOtaTrigger& btn_trigger,
     IOtaTrigger& espnow_trigger,
     espnow::IEspNowManager& espnow,
@@ -55,7 +55,7 @@ SolarSensor::SolarSensor(
     , core_storage_(core_storage)
     , solar_storage_(solar_storage)
     , hal_timer_(hal_timer)
-    , ota_manager_(ota_manager)
+    , ota_controller_(ota_controller)
     , btn_trigger_(btn_trigger)
     , espnow_trigger_(espnow_trigger)
     , espnow_(espnow)
@@ -79,14 +79,21 @@ esp_err_t SolarSensor::init()
     btn_trigger_.arm(*this);
     espnow_trigger_.arm(*this);
 
-    // 1. OTA Manager first to handle OTA updates
-    if ((err = init_ota()) != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to initialize OTA: %s", esp_err_to_name(err));
-        return err;
-    }
+    // 1. Initialize OtaController
+    OtaConfig ota_config{
+        .device_type = "solar_sensor",
+        .manifest_url = SERVER_URL,
+        .task_stack_size = 8192,
+        .task_priority = 5,
+        .transport = {.manifest_timeout_ms = 3000, .firmware_timeout_ms = 30000},
+        .security = {.allow_http_during_development = true},
+        .allow_same_version = false,
+        .restart_on_success = false,
+    };
 
-    if (ota_manager_.check_pending_verify()) {
-        pending_firmware_verify_ = true;
+    if (!ota_controller_.init(ota_config)) {
+        ESP_LOGW(TAG, "Failed to initialize OtaController config");
+        return ESP_FAIL;
     }
 
     // 2. Wifi for esp-now and OTA
@@ -110,44 +117,52 @@ esp_err_t SolarSensor::init()
         session_healthy_ = false;
     }
 
-    // 4. Initialize Battery Monitor
+    // 4. Perform post-boot firmware verification
+    OtaVerifyResult verify = ota_controller_.verify_firmware_on_boot(session_healthy_);
+    if (verify.pending_verify) {
+        if (verify.success && verify.version.has_value()) {
+            core_.fw_major = verify.version->major;
+            core_.fw_minor = verify.version->minor;
+            core_.fw_patch = verify.version->patch;
+            pending_core_commit_ = true;
+            send_ota_report(verify.exec_result, verify.error_code);
+        } else if (!verify.success) {
+            send_ota_report(verify.exec_result, verify.error_code);
+        }
+    }
+
+    // 5. Initialize Battery Monitor
     if ((err = bat_monitor_.init()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize BatteryMonitor: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 5. Initialize esp-now
+    // 6. Initialize esp-now
     if ((err = init_espnow()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize esp-now: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 6. Initialize INA VCC pin
+    // 7. Initialize INA VCC pin
     if ((err = init_ina_vcc_pin()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA VCC pin: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 7. Initialize INA task
+    // 8. Initialize INA task
     if ((err = init_ina_task(ina_config)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA Sensor Task: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // 8. Attach the INA ALERT GPIO ISR: the task wakes on every completed
-    // conversion (CNVR armed by InaSensorTask::init()). Must run after start()
-    // so the ISR receives a valid task handle.
+    // 9. Attach the INA ALERT GPIO ISR
     if ((err = init_ina_alert_pin()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA alert pin: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
-    // Rollback if session is not healthy
     if (!session_healthy_) {
-        if (pending_firmware_verify_) {
-            ESP_LOGE(TAG, "Session not healthy during OTA verification");
-            check_firmware();
-        }
+        ESP_LOGE(TAG, "SolarSensor session not healthy during boot initialization");
         return ESP_FAIL;
     }
 
@@ -180,8 +195,7 @@ bool SolarSensor::run()
 
     // 2. Process pending OTA triggers
     if (ota_triggered_) {
-        ESP_LOGI(TAG, "Processing pending OTA trigger...");
-        espnow_trigger_.notify();
+        process_pending_ota();
         ota_triggered_ = false;
     }
 
@@ -243,26 +257,6 @@ esp_err_t SolarSensor::update_battery_snapshot()
 // ===================================================================
 // Private Methods
 // ===================================================================
-esp_err_t SolarSensor::init_ota()
-{
-    OtaConfig ota_config{
-        .device_type = "solar_sensor",
-        .manifest_url = SERVER_URL,
-        .task_stack_size = 8192,
-        .task_priority = 5,
-        .transport = {.manifest_timeout_ms = 3000, .firmware_timeout_ms = 30000},
-        .security = {.allow_http_during_development = true},
-        .allow_same_version = false,
-        .restart_on_success = false,
-    };
-
-    if (!ota_manager_.init(ota_config)) {
-        ESP_LOGE(TAG, "Failed to initialize OTA Manager");
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-}
 
 esp_err_t SolarSensor::init_wifi()
 {
@@ -386,41 +380,44 @@ void SolarSensor::save_persistent_state()
     last_nvs_commit_ts_ = now_ms;
 }
 
-void SolarSensor::check_firmware()
+void SolarSensor::process_pending_ota()
 {
-    if (!pending_firmware_verify_) {
-        return;
+    ESP_LOGI(TAG, "Processing pending OTA update...");
+
+    btn_trigger_.disarm();
+    espnow_trigger_.disarm();
+    ina_sensor_task_.stop();
+
+    if (connect_wifi_with_retry(3) == ESP_OK) {
+        OtaDownloadResult dl = ota_controller_.execute_download();
+        if (dl.success) {
+            ESP_LOGI(TAG, "OTA download succeeded! Saving state and restarting...");
+            pending_core_commit_ = true;
+            pending_solar_commit_ = true;
+            save_persistent_state();
+            wifi_.disconnect(2000);
+            espnow_.deinit();
+            wifi_.stop();
+            hal_system_.restart();
+            return;
+        }
+        else {
+            ESP_LOGE(TAG, "OTA download failed (error_code: %d)", static_cast<int>(dl.error_code));
+            send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, dl.error_code);
+        }
+    }
+    else {
+        ESP_LOGE(TAG, "WiFi connection failed for OTA");
+        send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, farm::OtaErrorCode::WIFI_CONNECT_FAILED);
     }
 
-    if (!session_healthy_ || !ota_manager_.confirm_app_valid()) {
-        farm::OtaErrorCode err =
-            !session_healthy_ ? farm::OtaErrorCode::HEALTH_CHECK_FAILED : farm::OtaErrorCode::PARTITION_CONFIRM_FAILED;
-
-        ESP_LOGE(TAG, "Failed to confirm firmware. Triggering rollback (reason: %d).", static_cast<int>(err));
-
-        send_ota_report(farm::OtaExecResult::ROLLBACK_TRIGGERED, err);
-        wifi_.disconnect(2000);
-        espnow_.deinit();
-        wifi_.stop();
-
-        ota_manager_.rollback_and_reboot();
-        return;
-    }
-
-    // If we get here, the firmware is valid and confirme
-    pending_firmware_verify_ = false;
-
-    auto version = ota_manager_.get_running_version();
-    if (version.has_value()) {
-        core_.fw_major = version->major;
-        core_.fw_minor = version->minor;
-        core_.fw_patch = version->patch;
-    }
-    ESP_LOGI(TAG, "Firmware confirmed successfully. Versio: %d.%d.%d", core_.fw_major, core_.fw_minor, core_.fw_patch);
-
-    pending_core_commit_ = true; // save new version in storage
-
-    send_ota_report(farm::OtaExecResult::CONFIRMED_SUCCESS, farm::OtaErrorCode::NONE);
+    // Restore components if update did not result in reboot
+    wifi_.disconnect(2000);
+    wifi_.stop();
+    init_espnow();
+    btn_trigger_.arm(*this);
+    espnow_trigger_.arm(*this);
+    ina_sensor_task_.start();
 }
 
 esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code)
@@ -429,15 +426,11 @@ esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErro
     report.power_profile = core_.power_profile;
     report.result = result;
     report.error_code = error_code;
+    report.fw_major = core_.fw_major;
+    report.fw_minor = core_.fw_minor;
+    report.fw_patch = core_.fw_patch;
 
-    auto version = ota_manager_.get_running_version();
-    if (version.has_value()) {
-        report.fw_major = version->major;
-        report.fw_minor = version->minor;
-        report.fw_patch = version->patch;
-    }
-
-    ESP_LOGI(TAG, "Sending OTA status report: result=%u, error_code=%u", result, error_code);
+    ESP_LOGI(TAG, "Sending OTA status report: result=%u, error_code=%u", static_cast<uint8_t>(result), static_cast<uint8_t>(error_code));
     return espnow_.send_data(
         espnow::ReservedIds::HUB,
         static_cast<uint8_t>(farm::PayloadType::OTA_STATUS_REPORT),
