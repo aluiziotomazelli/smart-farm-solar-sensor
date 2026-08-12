@@ -55,7 +55,12 @@ public:
     virtual ~SolarSensor() = default;
 
     esp_err_t init();
-    esp_err_t run();
+
+    /**
+     * @brief Executes a single application run tick.
+     * @return true to continue the loop, false if application should stop (Deep Sleep or Reboot).
+     */
+    bool run();
 
     /** @copydoc IOtaTriggerListener::on_ota_triggered */
     void on_ota_triggered(OtaTriggerSource source) override;
@@ -116,7 +121,7 @@ private:
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
     esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     void save_persistent_state();
-    void process_ina_samples();
+    bool process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year);
     esp_err_t recover_ina_hardware();
     void enter_deep_sleep();
 

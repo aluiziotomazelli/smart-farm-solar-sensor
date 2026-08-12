@@ -8,24 +8,22 @@ CommandHandler::CommandHandler(
     QueueHandle_t rx_queue,
     espnow::IEspNowManager& espnow,
     time_manager::ITimeManager& time_manager,
-    IOtaTrigger& espnow_ota_trigger,
-    idf_hals::ISystemHAL& hal_system,
     CoreStorage& core,
     idf_hals::IHalFreertos& hal_freertos)
     : rx_queue_(rx_queue)
     , espnow_(espnow)
     , time_manager_(time_manager)
-    , espnow_ota_trigger_(espnow_ota_trigger)
-    , hal_system_(hal_system)
     , core_(core)
     , hal_freertos_(hal_freertos)
 {
 }
 
-void CommandHandler::process()
+CommandProcessResult CommandHandler::process()
 {
+    CommandProcessResult result{};
+
     if (rx_queue_ == nullptr) {
-        return;
+        return result;
     }
 
     espnow::AppMessage msg{};
@@ -43,17 +41,17 @@ void CommandHandler::process()
         ESP_LOGI(TAG, "Processing command 0x%02X from 0x%02X", cmd_type, msg.sender_id);
 
         if (cmd_type == static_cast<uint8_t>(espnow::CommandType::START_OTA)) {
-            espnow_ota_trigger_.notify();
+            result.ota_requested = true;
             if (msg.requires_ack) {
                 espnow_.confirm_reception(msg.sender_id, msg.sequence_number, espnow::AckStatus::OK);
             }
         }
         else if (cmd_type == static_cast<uint8_t>(espnow::CommandType::REBOOT)) {
+            result.reboot_requested = true;
             if (msg.requires_ack) {
                 espnow_.confirm_reception(msg.sender_id, msg.sequence_number, espnow::AckStatus::OK);
             }
-            ESP_LOGW(TAG, "REBOOT command received. Restarting system...");
-            hal_system_.restart();
+            ESP_LOGW(TAG, "REBOOT command received.");
         }
         else if (cmd_type == static_cast<uint8_t>(farm::CommandType::SYNC_TIME)) {
             if (msg.payload_len >= sizeof(time_manager::TimeSyncPacket)) {
@@ -62,6 +60,7 @@ void CommandHandler::process()
                 if (err == ESP_OK) {
                     core_.has_valid_time = time_manager_.is_synchronized();
                     core_.last_sync_unix_time_ms = time_manager_.get_timestamp_ms();
+                    result.core_modified = true;
                     if (msg.requires_ack) {
                         espnow_.confirm_reception(msg.sender_id, msg.sequence_number, espnow::AckStatus::OK);
                     }
@@ -94,4 +93,6 @@ void CommandHandler::process()
             }
         }
     }
+
+    return result;
 }

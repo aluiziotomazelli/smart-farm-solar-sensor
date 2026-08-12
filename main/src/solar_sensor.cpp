@@ -67,7 +67,7 @@ SolarSensor::SolarSensor(
     , hal_rtos_(hal_freertos)
     , hal_gpio_(hal_gpio)
     , hal_i2c_(hal_i2c)
-    , command_handler_(rx_queue_, espnow_, time_manager_, espnow_trigger_, hal_system_, core_, hal_rtos_)
+    , command_handler_(rx_queue_, espnow_, time_manager_, core_, hal_rtos_)
 {
 }
 
@@ -155,11 +155,63 @@ esp_err_t SolarSensor::init()
     return ESP_OK;
 }
 
-esp_err_t SolarSensor::run()
+bool SolarSensor::run()
 {
     ESP_LOGI(TAG, "SolarSensor running");
-    command_handler_.process();
-    return ESP_OK;
+
+    // 1. Process pending ESP-NOW commands
+    CommandProcessResult cmd_res = command_handler_.process();
+    if (cmd_res.core_modified) {
+        pending_core_commit_ = true;
+    }
+    if (cmd_res.ota_requested) {
+        ota_triggered_ = true;
+    }
+    if (cmd_res.reboot_requested) {
+        ESP_LOGW(TAG, "Reboot requested via command! Saving state and disconnecting WiFi...");
+        pending_core_commit_ = true;
+        pending_solar_commit_ = true;
+        save_persistent_state();
+        wifi_.disconnect(2000);
+        espnow_.deinit();
+        hal_system_.restart();
+        return false;
+    }
+
+    // 2. Process pending OTA triggers
+    if (ota_triggered_) {
+        ESP_LOGI(TAG, "Processing pending OTA trigger...");
+        espnow_trigger_.notify();
+        ota_triggered_ = false;
+    }
+
+    // 3. Update battery snapshot
+    update_battery_snapshot();
+
+    // 4. Extract current time information for dusk/solar calculations
+    bool is_synced = time_manager_.is_synchronized();
+    uint8_t hour = 0;
+    uint8_t minute = 0;
+    uint16_t day_of_year = 81; // equinox
+
+    if (is_synced) {
+        time_t now = time_manager_.get_timestamp_sec();
+        struct tm timeinfo{};
+        localtime_r(&now, &timeinfo);
+        hour = static_cast<uint8_t>(timeinfo.tm_hour);
+        minute = static_cast<uint8_t>(timeinfo.tm_min);
+        day_of_year = static_cast<uint16_t>(timeinfo.tm_yday + 1);
+    }
+
+    // 5. Process INA samples and check dusk condition
+    if (process_ina_samples(is_synced, hour, minute, day_of_year)) {
+        return false; // Entered deep sleep
+    }
+
+    // 6. Routine persistent storage save
+    save_persistent_state();
+
+    return true;
 }
 
 void SolarSensor::on_ota_triggered(OtaTriggerSource source)
@@ -441,14 +493,12 @@ esp_err_t SolarSensor::init_ina_task(InaSensorConfig config)
     return ina_sensor_task_.start();
 }
 
-void SolarSensor::process_ina_samples()
+bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year)
 {
     if (ina_sample_queue_ == nullptr) {
-        return;
+        return false;
     }
 
-    // Sampling enabled == active regime: the app only expects (and watches)
-    // periodic samples while sampling is on. prepare_for_sleep() disables it.
     bool sampling_active = ina_sensor_task_.is_sampling_enabled();
     uint32_t timeout_ms = sampling_active ? ina_sensor_task_.get_watchdog_timeout_ms() : 0;
 
@@ -467,26 +517,42 @@ void SolarSensor::process_ina_samples()
                 if (recover_ina_hardware() == ESP_OK) {
                     ESP_LOGI(TAG, "Successfully recovered INA hardware");
                     consecutive_ina_errors_ = 0;
-                    return;
+                    return false;
                 }
                 else {
                     hal_system_.restart();
                 }
             }
-            return;
+            return false;
         }
 
         consecutive_ina_errors_ = 0;
+
         if (sample.isc_current_ma > stats_.max_current_ma) {
             stats_.max_current_ma = sample.isc_current_ma;
-            telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
             pending_solar_commit_ = true;
+        }
+        telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
+
+        if (day_night_controller_.should_enter_night_mode(
+                sample.isc_current_ma, is_synced, hour, minute, day_of_year)) {
+            ESP_LOGI(TAG, "Dusk detected (current: %u mA). Entering night sleep...", sample.isc_current_ma);
+            telemetry_snapshot_.set_night_mode(true);
+
+            pending_core_commit_ = true;
+            pending_solar_commit_ = true;
+            save_persistent_state();
+
+            enter_deep_sleep();
+            return true;
         }
     }
     else if (sampling_active) {
         ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>%ums without sample)! Resetting system...", timeout_ms);
         hal_system_.restart();
     }
+
+    return false;
 }
 
 esp_err_t SolarSensor::recover_ina_hardware()
@@ -578,7 +644,22 @@ void SolarSensor::enter_deep_sleep()
 
     ESP_LOGI(TAG, "Entering deep sleep...");
 
-    constexpr uint64_t sleep_time = DEEP_SLEEP_TIME_MIN * 60ULL * 1000000ULL;
+    bool is_synced = time_manager_.is_synchronized();
+    uint8_t hour = 0;
+    uint8_t minute = 0;
+    uint16_t day_of_year = 81;
+
+    if (is_synced) {
+        time_t now = time_manager_.get_timestamp_sec();
+        struct tm timeinfo{};
+        localtime_r(&now, &timeinfo);
+        hour = static_cast<uint8_t>(timeinfo.tm_hour);
+        minute = static_cast<uint8_t>(timeinfo.tm_min);
+        day_of_year = static_cast<uint16_t>(timeinfo.tm_yday + 1);
+    }
+
+    uint64_t sleep_time = day_night_controller_.calculate_night_sleep_time_us(is_synced, hour, minute, day_of_year);
+
     hal_sleep_.enable_timer_wakeup(sleep_time);
 
     // GPIO wakeup on ALERT going LOW: the INA (SHUNT_OVER_VOLTAGE alert armed

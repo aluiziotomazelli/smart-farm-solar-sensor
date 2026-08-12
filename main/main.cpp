@@ -163,6 +163,8 @@ extern "C" void app_main()
     // Initialize application state
     solar.init();
 
-    // Run the main application flow in a loop if not sleeping
-    solar.run();
+    // Run the main application flow in a loop while active
+    while (solar.run()) {
+        hal_freertos.task_delay(pdMS_TO_TICKS(100));
+    }
 }

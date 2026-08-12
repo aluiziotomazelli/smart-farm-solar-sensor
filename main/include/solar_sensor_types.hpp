@@ -23,14 +23,3 @@ static constexpr uint8_t DEFAULT_DUSK_MARGIN_AFTER_SUNSET_MIN = 120;
 static constexpr uint8_t DEFAULT_HYSTERESIS_SAMPLE_COUNT = 15;
 static constexpr float DEFAULT_LATITUDE_DEG = -20.2074f;      ///< Default latitude
 static constexpr float DEFAULT_TIMEZONE_OFFSET_HOURS = -4.0f; ///< Default timezone offset in hours (UTC-4)
-
-/**
- * @enum SolarNodeState
- * @brief High-level operational states for the Solar Sensor Node.
- */
-enum class SolarNodeState : uint8_t
-{
-    DAY_ACTIVE = 0,  ///< Active daytime sampling (~8Hz) & ESP-NOW telemetry
-    NIGHT_SLEEP = 1, ///< Low power night sleep, INA226 in Shunt Over Voltage wakeup mode
-    OTA_UPDATE = 2   ///< Over-The-Air firmware update mode (high activity, WiFi connected)
-};
