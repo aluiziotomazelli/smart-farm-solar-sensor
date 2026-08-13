@@ -229,11 +229,15 @@ esp_err_t InaSensorTask::apply_night_config(const InaNightConfig& night_cfg)
 
 void InaSensorTask::apply_ema_filter(float raw_ma, InaSample& sample)
 {
-    if (ema_current_ma_ == 0.0f && raw_ma > 0.0f) {
+    if (!config_.enable_ema_filter) {
+        ema_current_ma_ = raw_ma;
+    }
+    else if (ema_current_ma_ == 0.0f && raw_ma > 0.0f) {
         ema_current_ma_ = raw_ma;
     }
     else {
-        ema_current_ma_ = (EMA_ALPHA * raw_ma) + ((1.0f - EMA_ALPHA) * ema_current_ma_);
+        float alpha = config_.ema_alpha;
+        ema_current_ma_ = (alpha * raw_ma) + ((1.0f - alpha) * ema_current_ma_);
     }
 
     sample.isc_current_ma = static_cast<uint16_t>(ema_current_ma_ > 0.0f ? ema_current_ma_ : 0.0f);
@@ -273,9 +277,9 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
     report.power_profile = farm::PowerProfile::ALWAYS_ON;
     report.isc_current_ma = current_ma;
 
-    float ratio = (static_cast<float>(current_ma) / 700.0f);
-    report.irradiance_wm2 = static_cast<uint16_t>(ratio * 1000.0f);
-    report.estimated_power_w = static_cast<uint16_t>(ratio * 2640.0f);
+    float current_f = static_cast<float>(current_ma);
+    report.irradiance_wm2 = static_cast<uint16_t>((current_f * 5.0f) / 3.0f);
+    report.estimated_power_w = static_cast<uint16_t>(current_f * 4.4f);
     report.battery_mv = snap.battery_mv;
     report.battery_percent = snap.battery_percent;
     report.battery_state = snap.battery_state;

@@ -14,6 +14,40 @@ The **SolarSensor** is a peripheral sensor node based on the **Seeed XIAO ESP32-
   - INA226 limit: $\pm 81.92\text{mV}$ (full scale of $819.2\text{mA}$ with $25\mu\text{A}/LSB$ resolution).
   - The measured peak of $0.7\text{A}$ operates at **~85% of full scale**, providing excellent resolution and 15% safety margin against overcurrent.
 
+### 1.2 Physical Irradiance Model and Empirical Benchmarks
+
+- **Datasheet Specifications (STC: 1000 W/m² @ 25°C)**:
+  - Nominal Short-Circuit Current: $I_{sc\_nominal} = 600\text{ mA}$ ($0.6\text{ A}$).
+  - Nominal Solar Irradiance: $1000\text{ W/m}^2$.
+
+- **Empirical Field Measurement Benchmark**:
+  - Measured at midday (clear sky, panel perpendicular to sun): $I_{sc\_measured} = 720\text{ mA}$.
+  - Equivalent Solar Irradiance:
+    $$\text{Irradiance} = \frac{720\text{ mA}}{600\text{ mA}} \times 1000\text{ W/m}^2 = 1200\text{ W/m}^2$$
+  - INA226 Full Scale Verification ($R_{shunt} = 0.1\Omega$):
+    $$V_{shunt} = 720\text{ mA} \times 0.1\Omega = 72\text{ mV}$$
+    Operates at **88% of INA226 full-scale** ($\pm 81.92\text{ mV}$ / $819.2\text{ mA}$ max), providing a 100 mA (12%) safety margin.
+
+- **Irradiance and STC Power Conversion Formulas**:
+  1. **Irradiance Calculation ($W/m^2$)**:
+     $$\text{irradiance\_wm2} = \frac{I_{sc\_ma} \times 1000}{600} = \frac{I_{sc\_ma} \times 5}{3}$$
+  2. **Nominal Main Array STC Capacity ($W$)**:
+     $$\text{estimated\_power\_w} = \frac{I_{sc\_ma} \times 2640\text{ W}}{600\text{ mA}} = I_{sc\_ma} \times 4.4$$
+
+### 1.3 Temperature Effects and High-Precision MPPT Thermal Compensation
+
+- **Why Short-Circuit Current ($I_{sc}$) Measures Pure Irradiance**:
+  - The temperature coefficient of short-circuit current ($\alpha_{Isc}$) is negligible ($\approx +0.04\% / ^\circ\text{C}$).
+  - Variations in cell temperature (10°C to 60°C) affect $I_{sc}$ by less than 1.5%. Therefore, $I_{sc}$ provides a temperature-immune measurement of pure solar irradiance ($W/m^2$).
+
+- **Why a Panel Temperature Sensor Is Required for Maximum MPPT Precision**:
+  - Photovoltaic cell open-circuit voltage ($V_{oc}$) and maximum power ($P_{max}$) have a strong **negative temperature coefficient** ($\gamma_{Pmax} \approx -0.35\% / ^\circ\text{C}$).
+  - **Hot Conditions (55°C cell temp)**: The main array's MPPT output drops by $\sim 10.5\%$ ($2362\text{ W}$ instead of $2640\text{ W}$ nominal at 1000 W/m²).
+  - **Cold Conditions (15°C cell temp)**: The main array's MPPT output increases by $\sim +3.5\%$ ($2732\text{ W}$ at 1000 W/m²).
+  - **Future Hardware Addendum**: Adding a panel temperature sensor (e.g., DS18B20 / NTC attached to the back of the sensor panel) will allow applying the thermal correction factor:
+    $$\text{Thermal\_Factor} = 1.0 + (T_{panel} - 25^\circ\text{C}) \times (-0.0035)$$
+    $$P_{mppt\_compensated} = \text{estimated\_power\_w} \times \text{Thermal\_Factor}$$
+
 ---
 
 ## 2. Data Structures and Protocol

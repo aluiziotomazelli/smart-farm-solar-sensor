@@ -71,8 +71,6 @@ private:
     int64_t last_report_timestamp_us_{0};
     float uv_per_ma_{100.0f};
 
-    static constexpr float EMA_ALPHA = 0.8f;
-
     esp_err_t read_raw_sample(float& out_ma, int32_t& out_raw_vsh_uv);
     esp_err_t apply_night_config(const InaNightConfig& night_cfg);
     void apply_ema_filter(float raw_ma, InaSample& sample);

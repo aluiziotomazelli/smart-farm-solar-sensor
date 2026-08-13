@@ -283,3 +283,32 @@ TEST_F(InaSensorTaskTest, SamplePeriodAndWatchdogTimeoutFromActiveDriverConfig)
     // Timeout: max(500, 140 * 3) = 500 ms
     EXPECT_EQ(sut_->get_watchdog_timeout_ms(), 500u);
 }
+
+TEST_F(InaSensorTaskTest, ProcessCycleBypassesEmaWhenDisabled)
+{
+    InaSensorConfig config{};
+    config.enable_ema_filter = false;
+
+    EXPECT_CALL(mock_driver_, init(NULL_BUS)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, configure_alert(CNVR_ALERT_MASK, 0)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
+
+    sut_->init(config, NULL_BUS);
+    sut_->set_reporting_enabled(true);
+
+    int32_t read_shunt_uv = 50000; // 500 mA
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_))
+        .WillRepeatedly(DoAll(SetArgReferee<0>(read_shunt_uv), Return(ESP_OK)));
+    EXPECT_CALL(mock_driver_, read_alert_flags(_)).WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
+
+    InaSample captured_sample{};
+    EXPECT_CALL(mock_rtos_, queue_send(dummy_queue_, _, 0))
+        .WillOnce([&](QueueHandle_t, const void* item, TickType_t) {
+            captured_sample = *static_cast<const InaSample*>(item);
+            return pdTRUE;
+        });
+
+    sut_->process_cycle();
+
+    EXPECT_EQ(captured_sample.isc_current_ma, 500u);
+}
