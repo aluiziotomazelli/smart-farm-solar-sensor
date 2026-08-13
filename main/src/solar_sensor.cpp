@@ -870,31 +870,39 @@ bool SolarSensor::process_night_calibration()
 {
     ESP_LOGI(TAG, "Starting 03:00 AM UTC night calibration...");
 
-    int32_t total_vsh_uv = 0;
+    static constexpr uint8_t TARGET_SAMPLES = 9;
+    static constexpr int32_t MAX_SANITY_OFFSET_UV = 100; // Max 100 uV (1.0 mA) nocturnal offset limit
+
+    int32_t samples[TARGET_SAMPLES] = {0};
     uint8_t valid_samples = 0;
-    static constexpr uint8_t TARGET_SAMPLES = 5;
 
     if (ina_sample_queue_ != nullptr) {
         for (uint8_t i = 0; i < TARGET_SAMPLES; ++i) {
             InaSample sample{};
             if (hal_rtos_.queue_receive(ina_sample_queue_, &sample, pdMS_TO_TICKS(200)) == pdTRUE) {
-                if (sample.status == ESP_OK) {
-                    total_vsh_uv += sample.shunt_voltage_uv;
-                    valid_samples++;
+                if (sample.status == ESP_OK && std::abs(sample.shunt_voltage_uv) <= MAX_SANITY_OFFSET_UV) {
+                    samples[valid_samples++] = sample.shunt_voltage_uv;
+                }
+                else if (sample.status == ESP_OK) {
+                    ESP_LOGW(TAG, "Calibration sample rejected due to light pulse / noise spike: %ld uV",
+                             static_cast<long>(sample.shunt_voltage_uv));
                 }
             }
         }
     }
 
-    if (valid_samples > 0) {
-        int16_t offset_uv = static_cast<int16_t>(total_vsh_uv / valid_samples);
-        stats_.shunt_zero_offset_uv = offset_uv;
-        ESP_LOGI(TAG, "Night zero-current calibration complete: offset = %d uV (%u samples)", offset_uv, valid_samples);
+    if (valid_samples >= 3) {
+        std::sort(samples, samples + valid_samples);
+        int16_t median_offset_uv = static_cast<int16_t>(samples[valid_samples / 2]);
+        stats_.shunt_zero_offset_uv = median_offset_uv;
+        ESP_LOGI(TAG, "Night zero-current calibration complete: median offset = %d uV (%u valid samples)",
+                 median_offset_uv, valid_samples);
         pending_solar_commit_ = true;
         save_persistent_state();
     }
     else {
-        ESP_LOGW(TAG, "Night calibration failed: no valid INA samples received");
+        ESP_LOGW(TAG, "Night calibration skipped: insufficient valid samples (retaining previous offset = %d uV)",
+                 stats_.shunt_zero_offset_uv);
     }
 
     enter_deep_sleep();
@@ -903,6 +911,7 @@ bool SolarSensor::process_night_calibration()
 
 bool SolarSensor::process_spurious_wake()
 {
+    // TODO: Implement lightning flash detection and event logging when night wake is triggered by brief nocturnal light pulses (e.g. lightning).
     ESP_LOGI(TAG, "Spurious night wakeup detected. Re-entering deep sleep...");
     enter_deep_sleep();
     return false;
