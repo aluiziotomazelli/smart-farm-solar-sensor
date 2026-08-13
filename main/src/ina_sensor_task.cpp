@@ -135,10 +135,10 @@ esp_err_t InaSensorTask::prepare_for_sleep()
 
     ESP_LOGI(
         TAG,
-        "InaSensorTask prepared for sleep (avg=%u vbus=%u vsh=%u, alert=SHUNT_OVER_VOLTAGE, limit=%u)",
-        static_cast<unsigned>(config_.night_config.avg_mode),
-        static_cast<unsigned>(config_.night_config.vbus_ct),
-        static_cast<unsigned>(config_.night_config.vsh_ct),
+        "InaSensorTask prepared for sleep (avg=%u, vbus=%luus, vsh=%luus, alert=SHUNT_OVER_VOLTAGE, limit=%u)",
+        static_cast<unsigned>(ina226::averaging_mode_to_count(config_.night_config.avg_mode)),
+        static_cast<unsigned long>(ina226::conversion_time_to_us(config_.night_config.vbus_ct)),
+        static_cast<unsigned long>(ina226::conversion_time_to_us(config_.night_config.vsh_ct)),
         DEFAULT_DAWN_WAKEUP_ALERT_LIMIT);
     return ESP_OK;
 }
@@ -251,16 +251,18 @@ void InaSensorTask::check_and_dispatch_telemetry(InaSample& sample)
     float delta_ma = std::abs(ema_current_ma_ - last_reported_current_ma_);
     float rel_delta = last_reported_current_ma_ > 0 ? (delta_ma / last_reported_current_ma_) : 0.0f;
 
-    bool delta_triggered = (delta_ma >= config_.delta_threshold_ma) ||
-                           (last_reported_current_ma_ >= 20.0f && rel_delta >= config_.delta_threshold_percent);
+    bool delta_triggered =
+        (delta_ma >= config_.delta_threshold_ma) || (last_reported_current_ma_ >= DEFAULT_DAWN_CURRENT_THRESHOLD_MA &&
+                                                     rel_delta >= config_.delta_threshold_percent);
     bool heartbeat_triggered = (now_us - last_report_timestamp_us_) >= (config_.heartbeat_interval_ms * 1000LL);
 
     sample.delta_detected = delta_triggered;
 
     if (delta_triggered || heartbeat_triggered) {
-        if (send_telemetry_report(sample.isc_current_ma) == ESP_OK) {
-            last_reported_current_ma_ = ema_current_ma_;
-            last_report_timestamp_us_ = now_us;
+        last_reported_current_ma_ = ema_current_ma_;
+        last_report_timestamp_us_ = now_us;
+        if (send_telemetry_report(sample.isc_current_ma) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to send telemetry report");
         }
     }
 }
@@ -307,7 +309,7 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
         static_cast<uint8_t>(farm::PayloadType::SOLAR_SENSOR_REPORT),
         &report,
         sizeof(report),
-        /*require_ack=*/false);
+        false); // require_ack = false
 }
 
 void InaSensorTask::task_entry_point(void* arg)

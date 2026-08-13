@@ -24,7 +24,7 @@ static constexpr InaSensorConfig ina_config = {
         {
             .vsh_ct = ina226::ConversionTime::CT_8244US,
             .vbus_ct = ina226::ConversionTime::CT_8244US,
-            .avg_mode = ina226::AveragingMode::AVG_64,
+            .avg_mode = ina226::AveragingMode::AVG_1024,
         },
 };
 
@@ -198,6 +198,9 @@ bool SolarSensor::run()
 bool SolarSensor::run_day_cycle()
 {
     ESP_LOGD(TAG, "SolarSensor running day cycle");
+
+    // TODO: verify espnow::NodeState, if the hub stays long time offline, the sensor will attempt to RECOVERY_SCAN
+    // sometimes until giveup and stays in IDLE state until reconnect is called
 
     // 1. Process pending ESP-NOW commands
     CommandProcessResult cmd_res = command_handler_.process();

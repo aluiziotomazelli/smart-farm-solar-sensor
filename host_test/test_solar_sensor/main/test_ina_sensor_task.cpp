@@ -257,7 +257,7 @@ TEST_F(InaSensorTaskTest, PrepareForSleepAppliesNightConfigAndArmsDawnAlert)
     EXPECT_FALSE(sut_->is_reporting_enabled());
 
     // Night regime uses slow conversions (CT_8244US) to save power; base fields preserved
-    EXPECT_EQ(captured.avg_mode, AveragingMode::AVG_64);
+    EXPECT_EQ(captured.avg_mode, AveragingMode::AVG_1024);
     EXPECT_EQ(captured.vbus_ct, ConversionTime::CT_8244US);
     EXPECT_EQ(captured.vsh_ct, ConversionTime::CT_8244US);
     EXPECT_EQ(captured.r_shunt_ohms, 0.05f);
