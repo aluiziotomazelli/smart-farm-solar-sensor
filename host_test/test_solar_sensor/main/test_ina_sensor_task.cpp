@@ -46,6 +46,7 @@ protected:
 
     void SetUp() override
     {
+        ON_CALL(mock_driver_, get_config()).WillByDefault(ReturnRef(base_config_));
         sut_ = std::make_unique<InaSensorTask>(
             mock_driver_,
             mock_espnow_,
@@ -103,12 +104,9 @@ TEST_F(InaSensorTaskTest, ProcessCycleNormalSampling)
 {
     init_sut();
 
-    float read_current = 500.0f;
-    uint16_t read_bus = 12000;
-    EXPECT_CALL(mock_driver_, read_current_ma(_))
-        .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
-    EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_))
-        .WillOnce(DoAll(SetArgReferee<0>(read_bus), Return(ESP_OK)));
+    int32_t read_shunt_uv = 50000;
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_))
+        .WillRepeatedly(DoAll(SetArgReferee<0>(read_shunt_uv), Return(ESP_OK)));
     EXPECT_CALL(mock_driver_, read_alert_flags(_))
         .WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
     EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
@@ -131,12 +129,9 @@ TEST_F(InaSensorTaskTest, ProcessCyclePopulatesTelemetryFromSnapshotAndSyncTime)
     EXPECT_CALL(mock_time_, is_synchronized()).WillOnce(Return(true));
     EXPECT_CALL(mock_time_, get_timestamp_ms()).WillOnce(Return(1700000000000ULL));
 
-    float read_current = 500.0f;
-    uint16_t read_bus = 12000;
-    EXPECT_CALL(mock_driver_, read_current_ma(_))
-        .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
-    EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_))
-        .WillOnce(DoAll(SetArgReferee<0>(read_bus), Return(ESP_OK)));
+    int32_t read_shunt_uv = 50000;
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_))
+        .WillRepeatedly(DoAll(SetArgReferee<0>(read_shunt_uv), Return(ESP_OK)));
     EXPECT_CALL(mock_driver_, read_alert_flags(_))
         .WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
 
@@ -166,10 +161,9 @@ TEST_F(InaSensorTaskTest, ProcessCycleSendsZeroTimeWhenNotSynchronized)
 
     EXPECT_CALL(mock_time_, is_synchronized()).WillOnce(Return(false));
 
-    float read_current = 500.0f;
-    EXPECT_CALL(mock_driver_, read_current_ma(_))
-        .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
-    EXPECT_CALL(mock_driver_, read_bus_voltage_mv(_)).WillOnce(Return(ESP_OK));
+    int32_t read_shunt_uv = 50000;
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_))
+        .WillRepeatedly(DoAll(SetArgReferee<0>(read_shunt_uv), Return(ESP_OK)));
     EXPECT_CALL(mock_driver_, read_alert_flags(_)).WillOnce(Return(ESP_OK));
 
     farm::SolarSensorReport captured_report{};
@@ -191,9 +185,9 @@ TEST_F(InaSensorTaskTest, ProcessCycleReportingDisabledSuppressesEspNow)
     init_sut();
     sut_->set_reporting_enabled(false);
 
-    float read_current = 500.0f;
-    EXPECT_CALL(mock_driver_, read_current_ma(_))
-        .WillOnce(DoAll(SetArgReferee<0>(read_current), Return(ESP_OK)));
+    int32_t read_shunt_uv = 50000;
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_))
+        .WillRepeatedly(DoAll(SetArgReferee<0>(read_shunt_uv), Return(ESP_OK)));
     EXPECT_CALL(mock_driver_, read_alert_flags(_))
         .WillOnce(DoAll(SetArgReferee<0>(0), Return(ESP_OK)));
     EXPECT_CALL(mock_espnow_, send_data(_, _, _, _, _)).Times(0);
@@ -207,7 +201,7 @@ TEST_F(InaSensorTaskTest, ProcessCycleSamplingDisabledDoesNothing)
 {
     sut_->set_sampling_enabled(false);
 
-    EXPECT_CALL(mock_driver_, read_current_ma(_)).Times(0);
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_)).Times(0);
     EXPECT_CALL(mock_rtos_, queue_send(_, _, _)).Times(0);
 
     sut_->process_cycle();
@@ -219,7 +213,7 @@ TEST_F(InaSensorTaskTest, ReadErrorEnqueuesSampleWithErrorStatus)
     // Recovery is the app's responsibility.
     init_sut();
 
-    EXPECT_CALL(mock_driver_, read_current_ma(_)).WillOnce(Return(ESP_ERR_TIMEOUT));
+    EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_)).WillOnce(Return(ESP_ERR_TIMEOUT));
 
     // Alert flags are only acknowledged after a successful read.
     EXPECT_CALL(mock_driver_, read_alert_flags(_)).Times(0);

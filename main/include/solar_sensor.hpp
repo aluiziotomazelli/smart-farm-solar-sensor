@@ -102,6 +102,7 @@ private:
     DayNightController day_night_controller_;
 
     std::atomic<bool> ota_triggered_{false};
+    bool wake_classified_ = false;
     int64_t last_nvs_commit_ts_ = 0;
     uint8_t consecutive_ina_errors_ = 0;
     uint64_t yield_umah_accumulator_ = 0;
@@ -123,6 +124,11 @@ private:
     bool process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year);
     void update_current_stats(const InaSample& sample);
     esp_err_t recover_ina_hardware();
+    WakeType evaluate_boot_mode();
+    void on_dawn_start();
+    bool process_night_calibration();
+    bool process_spurious_wake();
+    bool run_day_cycle();
     void enter_deep_sleep();
 
     esp_err_t init_ina_alert_pin();

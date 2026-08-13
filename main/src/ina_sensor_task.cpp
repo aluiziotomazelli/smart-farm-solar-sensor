@@ -56,7 +56,9 @@ esp_err_t InaSensorTask::init(const InaSensorConfig& config, i2c_master_bus_hand
     }
 
     last_report_timestamp_us_ = timer_.get_time_us();
-    ESP_LOGI(TAG, "InaSensorTask initialized successfully");
+    float r_shunt = driver_.get_config().r_shunt_ohms;
+    uv_per_ma_ = (r_shunt > 0.0f) ? (r_shunt * 1000.0f) : 100.0f;
+    ESP_LOGI(TAG, "InaSensorTask initialized successfully (R_shunt=%.3f Ohm, uV_per_mA=%.1f)", r_shunt, uv_per_ma_);
     return ESP_OK;
 }
 
@@ -167,12 +169,13 @@ void InaSensorTask::process_cycle()
     }
 
     float raw_ma = 0.0f;
-    uint16_t bus_mv = 0;
-    esp_err_t read_err = read_raw_sample(raw_ma, bus_mv);
+    int32_t raw_vsh_uv = 0;
+    esp_err_t read_err = read_raw_sample(raw_ma, raw_vsh_uv);
 
     InaSample sample{};
     sample.timestamp_us = timer_.get_time_us();
     sample.status = read_err;
+    sample.shunt_voltage_uv = raw_vsh_uv;
 
     if (read_err != ESP_OK) {
         ESP_LOGW(TAG, "INA226 read failed: %s", esp_err_to_name(read_err));
@@ -192,7 +195,6 @@ void InaSensorTask::process_cycle()
     }
 
     apply_ema_filter(raw_ma, sample);
-    sample.bus_voltage_mv = bus_mv;
 
     if (reporting_enabled_.load()) {
         check_and_dispatch_telemetry(sample);
@@ -201,11 +203,14 @@ void InaSensorTask::process_cycle()
     enqueue_sample(sample);
 }
 
-esp_err_t InaSensorTask::read_raw_sample(float& out_ma, uint16_t& out_bus_mv)
+esp_err_t InaSensorTask::read_raw_sample(float& out_ma, int32_t& out_raw_vsh_uv)
 {
-    esp_err_t err = driver_.read_current_ma(out_ma);
+    esp_err_t err = driver_.read_shunt_voltage_uv(out_raw_vsh_uv);
     if (err == ESP_OK) {
-        driver_.read_bus_voltage_mv(out_bus_mv);
+        int32_t corrected_vsh_uv = out_raw_vsh_uv - static_cast<int32_t>(shunt_zero_offset_uv_.load());
+        // Shunt voltage (uV) to current (mA) conversion using cached r_shunt_ohms * 1000.0f
+        float current_ma = static_cast<float>(corrected_vsh_uv) / uv_per_ma_;
+        out_ma = std::max(0.0f, current_ma);
     }
     return err;
 }

@@ -68,10 +68,12 @@ static idf_hals::HalSntp hal_sntp;
 // InaSensorTask::init() arms the conversion-ready alert (CNVR); the night
 // regime is applied only by InaSensorTask::prepare_for_sleep().
 static constexpr ina226::Ina226Config ina_day_config = {
+    .r_shunt_ohms = 0.1f,
     .avg_mode = ina226::AveragingMode::AVG_64,
     .vbus_ct = ina226::ConversionTime::CT_1100US,
     .vsh_ct = ina226::ConversionTime::CT_1100US,
-};
+    .mode = ina226::OperatingMode::SHUNT_AND_BUS_CONTINUOUS};
+
 static ina226::Ina226Driver ina_driver{hal_i2c, ina_day_config};
 
 // BatteryMonitor

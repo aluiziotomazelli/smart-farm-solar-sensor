@@ -13,6 +13,7 @@ public:
     MOCK_METHOD(void, stop, (), (override));
     MOCK_METHOD(void, set_reporting_enabled, (bool enabled), (override));
     MOCK_METHOD(void, set_sampling_enabled, (bool enabled), (override));
+    MOCK_METHOD(void, set_shunt_zero_offset_uv, (int16_t offset_uv), (override));
     MOCK_METHOD(esp_err_t, prepare_for_sleep, (), (override));
     MOCK_METHOD(bool, is_sampling_enabled, (), (const, override));
     MOCK_METHOD(uint32_t, get_expected_sample_period_ms, (), (const, override));

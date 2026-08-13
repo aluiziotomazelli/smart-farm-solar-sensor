@@ -27,7 +27,7 @@ static constexpr uint16_t DEFAULT_DAWN_CURRENT_THRESHOLD_MA = 5;
 struct InaSample
 {
     uint16_t isc_current_ma = 0; ///< Instantaneous short-circuit current in mA
-    uint16_t bus_voltage_mv = 0; ///< Measured bus/shunt voltage in mV
+    int32_t shunt_voltage_uv = 0;///< Raw measured shunt voltage in uV
     bool delta_detected = false; ///< Flag indicating change exceeding delta threshold
     esp_err_t status = ESP_OK;   ///< ESP_OK or I2C/INA226 hardware error status
     int64_t timestamp_us = 0;    ///< Microsecond timestamp of reading

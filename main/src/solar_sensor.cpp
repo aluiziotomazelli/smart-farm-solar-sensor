@@ -178,7 +178,26 @@ esp_err_t SolarSensor::init()
 
 bool SolarSensor::run()
 {
-    ESP_LOGI(TAG, "SolarSensor running");
+    if (!wake_classified_) {
+        wake_classified_ = true;
+        WakeType wake = evaluate_boot_mode();
+
+        if (wake == WakeType::CALIBRATION_TIMER) {
+            return process_night_calibration();
+        }
+        if (wake == WakeType::SPURIOUS_TIMER) {
+            return process_spurious_wake();
+        }
+
+        on_dawn_start();
+    }
+
+    return run_day_cycle();
+}
+
+bool SolarSensor::run_day_cycle()
+{
+    ESP_LOGI(TAG, "SolarSensor running day cycle");
 
     // 1. Process pending ESP-NOW commands
     CommandProcessResult cmd_res = command_handler_.process();
@@ -319,6 +338,7 @@ esp_err_t SolarSensor::init_solar_storage()
         telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
         telemetry_snapshot_.update_battery(
             stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
+        ina_sensor_task_.set_shunt_zero_offset_uv(stats_.shunt_zero_offset_uv);
         return ESP_OK;
     }
 
@@ -765,4 +785,110 @@ void IRAM_ATTR SolarSensor::ina_alert_isr_handler(void* arg)
     }
 
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+WakeType SolarSensor::evaluate_boot_mode()
+{
+    esp_sleep_source_t cause = hal_sleep_.get_wakeup_cause();
+    bool is_gpio_wakeup = (cause == ESP_SLEEP_WAKEUP_GPIO || cause == ESP_SLEEP_WAKEUP_EXT0);
+
+    // Power-on reset / cold boot starts in Day mode
+    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        ESP_LOGI(TAG, "Cold boot (ESP_SLEEP_WAKEUP_UNDEFINED). Starting in Day mode.");
+        return WakeType::DAWN_TIMER;
+    }
+
+    uint16_t initial_current_ma = 0;
+    if (ina_sample_queue_ != nullptr) {
+        InaSample initial_sample{};
+        if (hal_rtos_.queue_receive(ina_sample_queue_, &initial_sample, pdMS_TO_TICKS(200)) == pdTRUE) {
+            if (initial_sample.status == ESP_OK) {
+                initial_current_ma = initial_sample.isc_current_ma;
+            }
+        }
+    }
+
+    bool is_synced = time_manager_.is_synchronized();
+    uint8_t current_hour_local = 0;
+    if (is_synced) {
+        time_t now = static_cast<time_t>(time_manager_.get_timestamp_sec());
+        struct tm timeinfo{};
+        localtime_r(&now, &timeinfo);
+        // TODO: verify if only hour can't cause false negative dua drif in RTC in deep sleep
+        current_hour_local = static_cast<uint8_t>(timeinfo.tm_hour);
+    }
+
+    WakeType wake_type =
+        day_night_controller_.classify_wake(is_gpio_wakeup, initial_current_ma, is_synced, current_hour_local);
+
+    ESP_LOGI(
+        TAG,
+        "Evaluated boot mode: %d (cause=%d, gpio=%d, current=%u mA, synced=%d, hour=%u)",
+        static_cast<int>(wake_type),
+        static_cast<int>(cause),
+        is_gpio_wakeup,
+        initial_current_ma,
+        is_synced,
+        current_hour_local);
+
+    return wake_type;
+}
+
+void SolarSensor::on_dawn_start()
+{
+    ESP_LOGI(TAG, "Dawn transition: resetting daily stats and enabling telemetry reporting");
+
+    stats_.max_day_current_ma = 0;
+    yield_umah_accumulator_ = 0;
+    stats_.daily_yield_mah = 0;
+    stats_.is_night_mode = false;
+
+    telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
+    telemetry_snapshot_.set_night_mode(false);
+
+    ina_sensor_task_.set_shunt_zero_offset_uv(stats_.shunt_zero_offset_uv);
+    ina_sensor_task_.set_reporting_enabled(true);
+    pending_solar_commit_ = true;
+}
+
+bool SolarSensor::process_night_calibration()
+{
+    ESP_LOGI(TAG, "Starting 03:00 AM UTC night calibration...");
+
+    int32_t total_vsh_uv = 0;
+    uint8_t valid_samples = 0;
+    static constexpr uint8_t TARGET_SAMPLES = 5;
+
+    if (ina_sample_queue_ != nullptr) {
+        for (uint8_t i = 0; i < TARGET_SAMPLES; ++i) {
+            InaSample sample{};
+            if (hal_rtos_.queue_receive(ina_sample_queue_, &sample, pdMS_TO_TICKS(200)) == pdTRUE) {
+                if (sample.status == ESP_OK) {
+                    total_vsh_uv += sample.shunt_voltage_uv;
+                    valid_samples++;
+                }
+            }
+        }
+    }
+
+    if (valid_samples > 0) {
+        int16_t offset_uv = static_cast<int16_t>(total_vsh_uv / valid_samples);
+        stats_.shunt_zero_offset_uv = offset_uv;
+        ESP_LOGI(TAG, "Night zero-current calibration complete: offset = %d uV (%u samples)", offset_uv, valid_samples);
+        pending_solar_commit_ = true;
+        save_persistent_state();
+    }
+    else {
+        ESP_LOGW(TAG, "Night calibration failed: no valid INA samples received");
+    }
+
+    enter_deep_sleep();
+    return false;
+}
+
+bool SolarSensor::process_spurious_wake()
+{
+    ESP_LOGI(TAG, "Spurious night wakeup detected. Re-entering deep sleep...");
+    enter_deep_sleep();
+    return false;
 }

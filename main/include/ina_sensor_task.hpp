@@ -31,6 +31,7 @@ public:
 
     void set_reporting_enabled(bool enabled) override { reporting_enabled_.store(enabled); }
     void set_sampling_enabled(bool enabled) override { sampling_enabled_.store(enabled); }
+    void set_shunt_zero_offset_uv(int16_t offset_uv) override { shunt_zero_offset_uv_.store(offset_uv); }
     esp_err_t prepare_for_sleep() override;
 
     uint32_t get_expected_sample_period_ms() const override;
@@ -58,6 +59,7 @@ private:
     std::atomic<bool> reporting_enabled_{false};
     std::atomic<bool> sampling_enabled_{true};
     std::atomic<bool> running_{false};
+    std::atomic<int16_t> shunt_zero_offset_uv_{0};
 
     TaskHandle_t task_handle_ = nullptr;
     static void task_entry_point(void* arg);
@@ -67,10 +69,11 @@ private:
     float ema_current_ma_{0.0f};
     float last_reported_current_ma_{0.0f};
     int64_t last_report_timestamp_us_{0};
+    float uv_per_ma_{100.0f};
 
-    static constexpr float EMA_ALPHA = 0.2f;
+    static constexpr float EMA_ALPHA = 0.8f;
 
-    esp_err_t read_raw_sample(float& out_ma, uint16_t& out_bus_mv);
+    esp_err_t read_raw_sample(float& out_ma, int32_t& out_raw_vsh_uv);
     esp_err_t apply_night_config(const InaNightConfig& night_cfg);
     void apply_ema_filter(float raw_ma, InaSample& sample);
     void check_and_dispatch_telemetry(InaSample& sample);

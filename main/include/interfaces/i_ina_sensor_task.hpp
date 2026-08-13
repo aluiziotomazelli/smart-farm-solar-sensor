@@ -20,6 +20,7 @@ public:
 
     virtual void set_reporting_enabled(bool enabled) = 0;
     virtual void set_sampling_enabled(bool enabled) = 0;
+    virtual void set_shunt_zero_offset_uv(int16_t offset_uv) = 0;
 
     /**
      * @brief Prepares the sensor for the night deep-sleep regime.
