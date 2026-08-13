@@ -33,11 +33,10 @@ esp_err_t SolarSensorNvs::save_app_data(const SolarStats& stats, bool force_nvs_
 {
     SolarStats new_stats = stats;
     new_stats.magic = SolarStats::MAGIC;
+    new_stats.version = SolarStats::VERSION;
+    new_stats.crc = calculate_crc(new_stats);
 
     bool is_dirty = is_app_data_dirty(new_stats);
-
-    // Calculate CRC to save if data is dirty
-    new_stats.crc = calculate_crc(new_stats);
 
     // If data is not dirty and force_nvs_commit is false, return
     if (!is_dirty && !force_nvs_commit) {
@@ -47,18 +46,18 @@ esp_err_t SolarSensorNvs::save_app_data(const SolarStats& stats, bool force_nvs_
     // If is dirty, save to RTC
     if (is_dirty) {
         rtc_stats_.save(&new_stats, sizeof(new_stats));
-        ESP_LOGI(TAG, "Saved tank stats to RTC");
+        ESP_LOGD(TAG, "Saved solar stats to RTC");
     }
 
     // If NVS commit is forced, save to nvs
     if (force_nvs_commit) {
         esp_err_t err = nvs_stats_.save(&new_stats, sizeof(new_stats));
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "Saved tank stats to NVS");
+            ESP_LOGI(TAG, "Saved solar stats to NVS");
             return ESP_OK;
         }
         else {
-            ESP_LOGE(TAG, "Failed to save tank stats to NVS: %s", esp_err_to_name(err));
+            ESP_LOGE(TAG, "Failed to save solar stats to NVS: %s", esp_err_to_name(err));
             return err;
         }
     }

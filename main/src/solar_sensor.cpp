@@ -197,7 +197,7 @@ bool SolarSensor::run()
 
 bool SolarSensor::run_day_cycle()
 {
-    ESP_LOGI(TAG, "SolarSensor running day cycle");
+    ESP_LOGD(TAG, "SolarSensor running day cycle");
 
     // 1. Process pending ESP-NOW commands
     CommandProcessResult cmd_res = command_handler_.process();

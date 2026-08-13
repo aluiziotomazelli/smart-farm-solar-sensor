@@ -251,7 +251,8 @@ void InaSensorTask::check_and_dispatch_telemetry(InaSample& sample)
     float delta_ma = std::abs(ema_current_ma_ - last_reported_current_ma_);
     float rel_delta = last_reported_current_ma_ > 0 ? (delta_ma / last_reported_current_ma_) : 0.0f;
 
-    bool delta_triggered = (delta_ma >= config_.delta_threshold_ma) || (rel_delta >= config_.delta_threshold_percent);
+    bool delta_triggered = (delta_ma >= config_.delta_threshold_ma) ||
+                           (last_reported_current_ma_ >= 20.0f && rel_delta >= config_.delta_threshold_percent);
     bool heartbeat_triggered = (now_us - last_report_timestamp_us_) >= (config_.heartbeat_interval_ms * 1000LL);
 
     sample.delta_detected = delta_triggered;
