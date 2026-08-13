@@ -79,7 +79,7 @@ struct SolarSensorReport
     PowerProfile power_profile;   ///< Node energy mode (ALWAYS_ON, LOW_POWER, DEEP_SLEEP)
     uint16_t isc_current_ma;      ///< Instantaneous short-circuit current in mA (0 - 819 mA)
     uint16_t irradiance_wm2;      ///< Estimated solar irradiance in W/m² (0 - 1200 W/m²)
-    uint16_t estimated_power_w;   ///< Estimated generation capacity of the 2.64 kWp array in W
+    int16_t  panel_temp_c;        ///< Sensor panel temperature in 0.1 °C resolution (e.g. 255 = 25.5 °C, INT16_MIN if no sensor)
     uint16_t battery_mv;          ///< Sensor node battery voltage in mV
     uint8_t  battery_percent;     ///< Sensor node battery percentage level (0-100%)
     BatteryState battery_state;   ///< Sensor node battery classification

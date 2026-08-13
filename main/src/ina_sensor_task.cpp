@@ -279,7 +279,7 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
 
     float current_f = static_cast<float>(current_ma);
     report.irradiance_wm2 = static_cast<uint16_t>((current_f * 5.0f) / 3.0f);
-    report.estimated_power_w = static_cast<uint16_t>(current_f * 4.4f);
+    report.panel_temp_c = INT16_MIN; ///< INT16_MIN until DS18B20 driver reading is integrated
     report.battery_mv = snap.battery_mv;
     report.battery_percent = snap.battery_percent;
     report.battery_state = snap.battery_state;
