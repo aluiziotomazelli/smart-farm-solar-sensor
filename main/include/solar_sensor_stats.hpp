@@ -30,8 +30,7 @@ struct SolarStats
     farm::BatteryState last_battery_state = farm::BatteryState::UNKNOWN;
 
     // --- Solar Metrics & Daily Accumulators ---
-    uint16_t max_current_ma = 0;
-    uint16_t min_day_current_ma = 0;
+    uint16_t max_day_current_ma = 0;
     uint32_t daily_yield_mah = 0;
     int16_t  shunt_zero_offset_uv = 0;
 
@@ -54,8 +53,7 @@ struct SolarStats
                last_battery_mv == other.last_battery_mv &&
                last_battery_percent == other.last_battery_percent &&
                last_battery_state == other.last_battery_state &&
-               max_current_ma == other.max_current_ma &&
-               min_day_current_ma == other.min_day_current_ma &&
+               max_day_current_ma == other.max_day_current_ma &&
                daily_yield_mah == other.daily_yield_mah &&
                shunt_zero_offset_uv == other.shunt_zero_offset_uv &&
                crc == other.crc;

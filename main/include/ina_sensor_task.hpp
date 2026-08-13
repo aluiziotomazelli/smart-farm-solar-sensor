@@ -55,7 +55,7 @@ private:
     QueueHandle_t sample_queue_;
 
     InaSensorConfig config_{};
-    std::atomic<bool> reporting_enabled_{true};
+    std::atomic<bool> reporting_enabled_{false};
     std::atomic<bool> sampling_enabled_{true};
     std::atomic<bool> running_{false};
 

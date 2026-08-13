@@ -65,6 +65,7 @@ protected:
         EXPECT_CALL(mock_driver_, configure_alert(CNVR_ALERT_MASK, 0)).WillOnce(Return(ESP_OK));
         EXPECT_CALL(mock_timer_, get_time_us()).WillRepeatedly(Return(1000000));
         sut_->init(config, NULL_BUS);
+        sut_->set_reporting_enabled(true);
     }
 };
 
@@ -77,7 +78,7 @@ TEST_F(InaSensorTaskTest, InitSuccess)
     InaSensorConfig config{};
     EXPECT_EQ(sut_->init(config, NULL_BUS), ESP_OK);
     EXPECT_TRUE(sut_->is_sampling_enabled());
-    EXPECT_TRUE(sut_->is_reporting_enabled());
+    EXPECT_FALSE(sut_->is_reporting_enabled());
 }
 
 TEST_F(InaSensorTaskTest, InitDriverFailure)

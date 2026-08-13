@@ -64,8 +64,7 @@ protected:
         stats.last_battery_percent = 85;
         stats.last_battery_state = farm::BatteryState::NORMAL;
 
-        stats.max_current_ma = 720;
-        stats.min_day_current_ma = 15;
+        stats.max_day_current_ma = 720;
         stats.daily_yield_mah = 1500;
         stats.shunt_zero_offset_uv = -10;
 
@@ -145,7 +144,7 @@ TEST_F(SolarSensorNvsTest, LoadFailsWhenBothInvalid)
 TEST_F(SolarSensorNvsTest, SaveToRtcOnlyWhenNotForcingNvs)
 {
     SolarStats to_save = create_valid_stats();
-    to_save.max_current_ma = 750;
+    to_save.max_day_current_ma = 750;
 
     EXPECT_CALL(rtc_backend_, save(_, _)).Times(1);
     EXPECT_CALL(nvs_backend_, save(_, _)).Times(0);
@@ -155,13 +154,13 @@ TEST_F(SolarSensorNvsTest, SaveToRtcOnlyWhenNotForcingNvs)
     EXPECT_EQ(ret, ESP_OK);
 
     SolarStats rtc_stored = get_stored_rtc_data();
-    EXPECT_EQ(rtc_stored.max_current_ma, 750);
+    EXPECT_EQ(rtc_stored.max_day_current_ma, 750);
 }
 
 TEST_F(SolarSensorNvsTest, SaveToBothRtcAndNvsWhenForcing)
 {
     SolarStats to_save = create_valid_stats();
-    to_save.max_current_ma = 780;
+    to_save.max_day_current_ma = 780;
 
     EXPECT_CALL(rtc_backend_, save(_, _)).Times(1);
     EXPECT_CALL(nvs_backend_, save(_, _)).Times(1);
@@ -172,14 +171,14 @@ TEST_F(SolarSensorNvsTest, SaveToBothRtcAndNvsWhenForcing)
 
     SolarStats rtc_stored = get_stored_rtc_data();
     SolarStats nvs_stored = get_stored_nvs_data();
-    EXPECT_EQ(rtc_stored.max_current_ma, 780);
-    EXPECT_EQ(nvs_stored.max_current_ma, 780);
+    EXPECT_EQ(rtc_stored.max_day_current_ma, 780);
+    EXPECT_EQ(nvs_stored.max_day_current_ma, 780);
 }
 
 TEST_F(SolarSensorNvsTest, SaveToNvsFailsWhenNvsError)
 {
     SolarStats to_save = create_valid_stats();
-    to_save.max_current_ma = 800;
+    to_save.max_day_current_ma = 800;
 
     EXPECT_CALL(nvs_backend_, save(_, _)).Times(1).WillOnce(Return(ESP_ERR_NVS_NOT_INITIALIZED));
 
@@ -191,7 +190,7 @@ TEST_F(SolarSensorNvsTest, SaveToNvsFailsWhenNvsError)
 TEST_F(SolarSensorNvsTest, RoundTripSaveAndLoad)
 {
     SolarStats original = create_valid_stats();
-    original.max_current_ma = 710;
+    original.max_day_current_ma = 710;
     original.daily_yield_mah = 2000;
     original.crc = test_calculate_crc(original);
 
@@ -203,7 +202,7 @@ TEST_F(SolarSensorNvsTest, RoundTripSaveAndLoad)
 
     EXPECT_EQ(load_ret, ESP_OK);
     EXPECT_EQ(loaded, original);
-    EXPECT_EQ(loaded.max_current_ma, 710);
+    EXPECT_EQ(loaded.max_day_current_ma, 710);
     EXPECT_EQ(loaded.daily_yield_mah, 2000);
 }
 
@@ -259,14 +258,13 @@ TEST(SolarStatsTest, DefaultValuesAndReset)
     EXPECT_EQ(stats.last_battery_mv, 0);
     EXPECT_EQ(stats.last_battery_percent, 0);
     EXPECT_EQ(stats.last_battery_state, farm::BatteryState::UNKNOWN);
-    EXPECT_EQ(stats.max_current_ma, 0);
-    EXPECT_EQ(stats.min_day_current_ma, 0);
+    EXPECT_EQ(stats.max_day_current_ma, 0);
     EXPECT_EQ(stats.daily_yield_mah, 0);
     EXPECT_EQ(stats.shunt_zero_offset_uv, 0);
 
     // Modify fields
     stats.is_night_mode = true;
-    stats.max_current_ma = 750;
+    stats.max_day_current_ma = 750;
     stats.daily_yield_mah = 1200;
     stats.shunt_zero_offset_uv = -15;
 
@@ -275,7 +273,7 @@ TEST(SolarStatsTest, DefaultValuesAndReset)
     EXPECT_EQ(stats.magic, SolarStats::MAGIC);
     EXPECT_EQ(stats.version, SolarStats::VERSION);
     EXPECT_FALSE(stats.is_night_mode);
-    EXPECT_EQ(stats.max_current_ma, 0);
+    EXPECT_EQ(stats.max_day_current_ma, 0);
     EXPECT_EQ(stats.daily_yield_mah, 0);
     EXPECT_EQ(stats.shunt_zero_offset_uv, 0);
 }
@@ -286,10 +284,10 @@ TEST(SolarStatsTest, EqualityOperators)
     SolarStats stats2;
     EXPECT_EQ(stats1, stats2);
 
-    stats1.max_current_ma = 500;
+    stats1.max_day_current_ma = 500;
     EXPECT_NE(stats1, stats2);
 
-    stats2.max_current_ma = 500;
+    stats2.max_day_current_ma = 500;
     EXPECT_EQ(stats1, stats2);
 }
 

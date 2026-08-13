@@ -104,6 +104,7 @@ private:
     std::atomic<bool> ota_triggered_{false};
     int64_t last_nvs_commit_ts_ = 0;
     uint8_t consecutive_ina_errors_ = 0;
+    uint64_t yield_umah_accumulator_ = 0;
     i2c_master_bus_handle_t i2c_bus_handle_;
 
     esp_err_t init_ina_task(InaSensorConfig config);
@@ -120,6 +121,7 @@ private:
     esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     void save_persistent_state();
     bool process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year);
+    void update_current_stats(const InaSample& sample);
     esp_err_t recover_ina_hardware();
     void enter_deep_sleep();
 

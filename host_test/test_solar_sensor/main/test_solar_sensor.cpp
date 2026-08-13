@@ -185,3 +185,30 @@ TEST_F(SolarSensorTest, RunProcessesInaSamplesAndEntersNightSleepOnDusk)
     TelemetrySnapshotData snap = snapshot_.get();
     EXPECT_TRUE(snap.is_night_mode);
 }
+
+TEST_F(SolarSensorTest, ProcessInaSampleUpdatesMaxDayCurrentAndAccumulatesYield)
+{
+    InaSample sample{};
+    sample.isc_current_ma = 1000;
+    sample.status = ESP_OK;
+
+    EXPECT_CALL(mock_ina_task_, get_expected_sample_period_ms()).WillRepeatedly(Return(3600000u));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
+        .WillOnce(::testing::Invoke([sample](QueueHandle_t, void* data, TickType_t) {
+            if (data) {
+                *reinterpret_cast<InaSample*>(data) = sample;
+            }
+            return pdTRUE;
+        }))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_TRUE(sut_->run());
+
+    TelemetrySnapshotData snap = snapshot_.get();
+    EXPECT_EQ(snap.max_current_ma, 1000);
+    EXPECT_EQ(snap.daily_yield_mah, 1000);
+}

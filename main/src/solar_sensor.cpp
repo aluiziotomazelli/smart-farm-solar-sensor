@@ -314,7 +314,8 @@ esp_err_t SolarSensor::init_solar_storage()
     esp_err_t ret = solar_storage_.load_app_data(stats_);
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Loaded solar stats from storage");
-        telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
+        yield_umah_accumulator_ = static_cast<uint64_t>(stats_.daily_yield_mah) * 1000ULL;
+        telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
         telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
         telemetry_snapshot_.update_battery(
             stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
@@ -323,9 +324,10 @@ esp_err_t SolarSensor::init_solar_storage()
 
     ESP_LOGW(TAG, "Solar storage load failed (%s), recreating default storage", esp_err_to_name(ret));
     stats_.reset();
+    yield_umah_accumulator_ = 0;
     ret = solar_storage_.save_app_data(stats_, /*force_nvs_commit=*/true);
     if (ret == ESP_OK) {
-        telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
+        telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
         telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
         telemetry_snapshot_.update_battery(
             stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
@@ -539,11 +541,9 @@ bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minu
 
         consecutive_ina_errors_ = 0;
 
-        if (sample.isc_current_ma > stats_.max_current_ma) {
-            stats_.max_current_ma = sample.isc_current_ma;
-            pending_solar_commit_ = true;
-        }
-        telemetry_snapshot_.update_stats(stats_.max_current_ma, stats_.daily_yield_mah);
+        update_current_stats(sample);
+
+        telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
 
         if (day_night_controller_.should_enter_night_mode(
                 sample.isc_current_ma, is_synced, hour, minute, day_of_year)) {
@@ -560,10 +560,27 @@ bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minu
     }
     else if (sampling_active) {
         ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>%ums without sample)! Resetting system...", timeout_ms);
+        // TODO: Recover INA hardware
         hal_system_.restart();
     }
 
     return false;
+}
+
+void SolarSensor::update_current_stats(const InaSample& sample)
+{
+    if (sample.isc_current_ma > stats_.max_day_current_ma) {
+        stats_.max_day_current_ma = sample.isc_current_ma;
+    }
+    uint32_t sample_period_ms = ina_sensor_task_.get_expected_sample_period_ms();
+    if (sample_period_ms > 0 && sample.isc_current_ma > 0) {
+        uint64_t delta_umah = (static_cast<uint64_t>(sample.isc_current_ma) * sample_period_ms) / 3600ULL;
+        yield_umah_accumulator_ += delta_umah;
+        uint32_t new_yield_mah = static_cast<uint32_t>(yield_umah_accumulator_ / 1000ULL);
+        if (new_yield_mah != stats_.daily_yield_mah) {
+            stats_.daily_yield_mah = new_yield_mah;
+        }
+    }
 }
 
 esp_err_t SolarSensor::recover_ina_hardware()
@@ -586,6 +603,7 @@ esp_err_t SolarSensor::recover_ina_hardware()
     hal_gpio_.set_level(INA_VCC_GPIO, 1);
     hal_rtos_.task_delay(pdMS_TO_TICKS(10));
 
+    // TODO: verify if is indempotent because bus_handle
     esp_err_t err = init_ina_task(ina_config);
     if (err != ESP_OK) {
         return err;
@@ -652,6 +670,8 @@ void SolarSensor::enter_deep_sleep()
         ESP_LOGE(TAG, "Failed to prepare INA for sleep (%s), aborting deep sleep", esp_err_to_name(err));
         return;
     }
+
+    // TODO: verify if we need to discconect wifi, deinit espnow, etc.
 
     ESP_LOGI(TAG, "Entering deep sleep...");
 
