@@ -58,6 +58,11 @@ public:
     OtaDownloadResult execute_download(uint32_t timeout_ms = 60000);
 
     /**
+     * @brief Triggers rollback to previous firmware partition and reboots.
+     */
+    void rollback_and_reboot();
+
+    /**
      * @brief Helper to map OtaFailReason from OtaManager to protocol OtaErrorCode.
      */
     static farm::OtaErrorCode map_fail_reason(OtaFailReason reason);

@@ -117,20 +117,6 @@ esp_err_t SolarSensor::init()
         session_healthy_ = false;
     }
 
-    // 4. Perform post-boot firmware verification
-    OtaVerifyResult verify = ota_controller_.verify_firmware_on_boot(session_healthy_);
-    if (verify.pending_verify) {
-        if (verify.success && verify.version.has_value()) {
-            core_.fw_major = verify.version->major;
-            core_.fw_minor = verify.version->minor;
-            core_.fw_patch = verify.version->patch;
-            pending_core_commit_ = true;
-            send_ota_report(verify.exec_result, verify.error_code);
-        } else if (!verify.success) {
-            send_ota_report(verify.exec_result, verify.error_code);
-        }
-    }
-
     // 5. Initialize Battery Monitor
     if ((err = bat_monitor_.init()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize BatteryMonitor: %s", esp_err_to_name(err));
@@ -159,6 +145,26 @@ esp_err_t SolarSensor::init()
     if ((err = init_ina_alert_pin()) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize INA alert pin: %s", esp_err_to_name(err));
         session_healthy_ = false;
+    }
+
+    // 10. Perform post-boot firmware verification
+    OtaVerifyResult verify = ota_controller_.verify_firmware_on_boot(session_healthy_);
+    if (verify.pending_verify) {
+        send_ota_report(verify.exec_result, verify.error_code);
+
+        if (verify.success && verify.version.has_value()) {
+            core_.fw_major = verify.version->major;
+            core_.fw_minor = verify.version->minor;
+            core_.fw_patch = verify.version->patch;
+            pending_core_commit_ = true;
+        }
+        else if (!verify.success) {
+            ESP_LOGE(
+                TAG, "Post-boot OTA verification failed! Delaying for report transmission then triggering rollback...");
+            hal_rtos_.task_delay(pdMS_TO_TICKS(500));
+            ota_controller_.rollback_and_reboot();
+            return ESP_FAIL;
+        }
     }
 
     if (!session_healthy_) {
@@ -388,7 +394,15 @@ void SolarSensor::process_pending_ota()
     espnow_trigger_.disarm();
     ina_sensor_task_.stop();
 
-    if (connect_wifi_with_retry(3) == ESP_OK) {
+    bool previous_connected = (wifi_.get_state() == wifi_manager::State::CONNECTED_GOT_IP);
+    bool wifi_ok = previous_connected;
+
+    if (!previous_connected) {
+        espnow_.set_channel_policy(espnow::ChannelPolicy::FIXED);
+        wifi_ok = (connect_wifi_with_retry(3) == ESP_OK);
+    }
+
+    if (wifi_ok) {
         OtaDownloadResult dl = ota_controller_.execute_download();
         if (dl.success) {
             ESP_LOGI(TAG, "OTA download succeeded! Saving state and restarting...");
@@ -396,8 +410,7 @@ void SolarSensor::process_pending_ota()
             pending_solar_commit_ = true;
             save_persistent_state();
             wifi_.disconnect(2000);
-            espnow_.deinit();
-            wifi_.stop();
+            wifi_.stop(2000);
             hal_system_.restart();
             return;
         }
@@ -407,14 +420,15 @@ void SolarSensor::process_pending_ota()
         }
     }
     else {
-        ESP_LOGE(TAG, "WiFi connection failed for OTA");
+        ESP_LOGE(TAG, "Failed to connect to WiFi");
         send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, farm::OtaErrorCode::WIFI_CONNECT_FAILED);
     }
 
     // Restore components if update did not result in reboot
-    wifi_.disconnect(2000);
-    wifi_.stop();
-    init_espnow();
+    if (!previous_connected) {
+        wifi_.disconnect(2000);
+        espnow_.set_channel_policy(espnow::ChannelPolicy::SCAN);
+    }
     btn_trigger_.arm(*this);
     espnow_trigger_.arm(*this);
     ina_sensor_task_.start();
@@ -430,7 +444,11 @@ esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErro
     report.fw_minor = core_.fw_minor;
     report.fw_patch = core_.fw_patch;
 
-    ESP_LOGI(TAG, "Sending OTA status report: result=%u, error_code=%u", static_cast<uint8_t>(result), static_cast<uint8_t>(error_code));
+    ESP_LOGI(
+        TAG,
+        "Sending OTA status report: result=%u, error_code=%u",
+        static_cast<uint8_t>(result),
+        static_cast<uint8_t>(error_code));
     return espnow_.send_data(
         espnow::ReservedIds::HUB,
         static_cast<uint8_t>(farm::PayloadType::OTA_STATUS_REPORT),

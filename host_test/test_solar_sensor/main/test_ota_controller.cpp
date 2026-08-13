@@ -53,13 +53,18 @@ TEST_F(OtaControllerTest, VerifyFirmwareOnBootHealthySuccess)
 TEST_F(OtaControllerTest, VerifyFirmwareOnBootUnhealthyTriggersRollback)
 {
     EXPECT_CALL(mock_ota_manager_, check_pending_verify()).WillOnce(Return(true));
-    EXPECT_CALL(mock_ota_manager_, rollback_and_reboot()).Times(1);
 
     OtaVerifyResult result = sut_->verify_firmware_on_boot(false);
     EXPECT_TRUE(result.pending_verify);
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::ROLLBACK_TRIGGERED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::HEALTH_CHECK_FAILED);
+}
+
+TEST_F(OtaControllerTest, RollbackAndRebootDelegatesToManager)
+{
+    EXPECT_CALL(mock_ota_manager_, rollback_and_reboot()).Times(1);
+    sut_->rollback_and_reboot();
 }
 
 TEST_F(OtaControllerTest, ExecuteDownloadStartOtaFail)

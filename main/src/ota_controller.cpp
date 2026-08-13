@@ -29,8 +29,7 @@ OtaVerifyResult OtaController::verify_firmware_on_boot(bool session_healthy)
         result.error_code = !session_healthy ? farm::OtaErrorCode::HEALTH_CHECK_FAILED
                                               : farm::OtaErrorCode::PARTITION_CONFIRM_FAILED;
 
-        ESP_LOGE(TAG, "Firmware verification failed! Triggering rollback (reason: %d)...", static_cast<int>(result.error_code));
-        ota_manager_.rollback_and_reboot();
+        ESP_LOGE(TAG, "Firmware verification failed (reason: %d)", static_cast<int>(result.error_code));
         return result;
     }
 
@@ -45,6 +44,12 @@ OtaVerifyResult OtaController::verify_firmware_on_boot(bool session_healthy)
     }
 
     return result;
+}
+
+void OtaController::rollback_and_reboot()
+{
+    ESP_LOGE(TAG, "Triggering rollback and reboot...");
+    ota_manager_.rollback_and_reboot();
 }
 
 OtaDownloadResult OtaController::execute_download(uint32_t timeout_ms)
