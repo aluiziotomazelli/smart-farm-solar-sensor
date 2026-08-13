@@ -289,6 +289,16 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
     report.is_night_mode = snap.is_night_mode;
     report.unix_time = time_manager_.is_synchronized() ? time_manager_.get_timestamp_ms() : 0;
 
+    ESP_LOGI(
+        TAG,
+        "TX Telemetry: Isc=%u mA, Irradiance=%u W/m2, MaxDay=%u mA, Yield=%lu mAh, Bat=%u mV (%u%%)",
+        report.isc_current_ma,
+        report.irradiance_wm2,
+        report.max_current_ma,
+        static_cast<unsigned long>(report.daily_yield_mah),
+        report.battery_mv,
+        report.battery_percent);
+
     return espnow_.send_data(
         espnow::ReservedIds::HUB,
         static_cast<uint8_t>(farm::PayloadType::SOLAR_SENSOR_REPORT),
