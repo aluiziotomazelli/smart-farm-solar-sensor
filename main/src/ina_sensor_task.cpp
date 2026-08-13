@@ -85,6 +85,8 @@ esp_err_t InaSensorTask::start()
 void InaSensorTask::stop()
 {
     running_.store(false);
+    sampling_enabled_ = false;
+    reporting_enabled_ = false;
 
     if (task_handle_ != nullptr) {
         rtos_.task_notify_give(task_handle_);

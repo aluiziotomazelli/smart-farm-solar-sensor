@@ -261,6 +261,10 @@ void SolarSensor::on_ota_triggered(OtaTriggerSource source)
 
 esp_err_t SolarSensor::update_battery_snapshot()
 {
+    if (!bat_monitor_.is_initialized()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     battery_monitor::BatteryReading reading{};
     esp_err_t err = bat_monitor_.read(reading);
     if (err != ESP_OK) {
@@ -414,6 +418,8 @@ void SolarSensor::process_pending_ota()
 
     btn_trigger_.disarm();
     espnow_trigger_.disarm();
+    bool was_ina_sampling = ina_sensor_task_.is_sampling_enabled();
+    bool was_ina_reporting = ina_sensor_task_.is_reporting_enabled();
     ina_sensor_task_.stop();
 
     bool previous_connected = (wifi_.get_state() == wifi_manager::State::CONNECTED_GOT_IP);
@@ -454,6 +460,12 @@ void SolarSensor::process_pending_ota()
     btn_trigger_.arm(*this);
     espnow_trigger_.arm(*this);
     ina_sensor_task_.start();
+    if (was_ina_sampling) {
+        ina_sensor_task_.set_sampling_enabled(true);
+    }
+    if (was_ina_reporting) {
+        ina_sensor_task_.set_reporting_enabled(true);
+    }
 }
 
 esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code)
@@ -528,7 +540,7 @@ esp_err_t SolarSensor::init_ina_task(InaSensorConfig config)
 
 bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year)
 {
-    if (ina_sample_queue_ == nullptr) {
+    if (ina_sample_queue_ == nullptr || !ina_sensor_task_.is_sampling_enabled()) {
         return false;
     }
 

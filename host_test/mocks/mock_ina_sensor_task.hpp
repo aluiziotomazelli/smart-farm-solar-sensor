@@ -16,9 +16,11 @@ public:
     MOCK_METHOD(void, set_shunt_zero_offset_uv, (int16_t offset_uv), (override));
     MOCK_METHOD(esp_err_t, prepare_for_sleep, (), (override));
     MOCK_METHOD(bool, is_sampling_enabled, (), (const, override));
+    MOCK_METHOD(bool, is_reporting_enabled, (), (const, override));
     MOCK_METHOD(uint32_t, get_expected_sample_period_ms, (), (const, override));
     MOCK_METHOD(uint32_t, get_watchdog_timeout_ms, (), (const, override));
     MOCK_METHOD(TaskHandle_t, get_task_handle, (), (const, override));
+    MOCK_METHOD(void, process_cycle, (), (override));
 };
 
 } // namespace ina

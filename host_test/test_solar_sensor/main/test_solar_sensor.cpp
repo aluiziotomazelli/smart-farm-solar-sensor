@@ -100,6 +100,9 @@ protected:
 
         ON_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillByDefault(Return(pdFALSE));
         ON_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillByDefault(Return(pdFALSE));
+        ON_CALL(mock_bat_monitor_, is_initialized()).WillByDefault(Return(true));
+        ON_CALL(mock_ina_task_, is_sampling_enabled()).WillByDefault(Return(true));
+        ON_CALL(mock_ina_task_, is_reporting_enabled()).WillByDefault(Return(true));
 
         sut_ = std::make_unique<SolarSensor>(
             mock_ina_task_,
