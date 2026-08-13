@@ -595,7 +595,7 @@ bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minu
     }
     else if (sampling_active) {
         ESP_LOGE(TAG, "InaSensorTask watchdog timeout (>%ums without sample)! Resetting system...", timeout_ms);
-        // TODO: Recover INA hardware
+        recover_ina_hardware();
         hal_system_.restart();
     }
 
@@ -638,7 +638,6 @@ esp_err_t SolarSensor::recover_ina_hardware()
     hal_gpio_.set_level(INA_VCC_GPIO, 1);
     hal_rtos_.task_delay(pdMS_TO_TICKS(10));
 
-    // TODO: verify if is indempotent because bus_handle
     esp_err_t err = init_ina_task(ina_config);
     if (err != ESP_OK) {
         return err;
@@ -696,6 +695,10 @@ esp_err_t SolarSensor::init_ina_vcc_pin()
 
 void SolarSensor::enter_deep_sleep()
 {
+    espnow_.deinit();
+    wifi_.disconnect(2000);
+    wifi_.stop(2000);
+
     // Arm the night regime before sleeping. Without it the conversion-ready
     // alert (CNVR) stays armed, so the INA asserts the ALERT pin on every
     // conversion and the MCU would wake in a tight loop. On failure, abort
@@ -705,8 +708,6 @@ void SolarSensor::enter_deep_sleep()
         ESP_LOGE(TAG, "Failed to prepare INA for sleep (%s), aborting deep sleep", esp_err_to_name(err));
         return;
     }
-
-    // TODO: verify if we need to discconect wifi, deinit espnow, etc.
 
     ESP_LOGI(TAG, "Entering deep sleep...");
 
@@ -884,8 +885,10 @@ bool SolarSensor::process_night_calibration()
                     samples[valid_samples++] = sample.shunt_voltage_uv;
                 }
                 else if (sample.status == ESP_OK) {
-                    ESP_LOGW(TAG, "Calibration sample rejected due to light pulse / noise spike: %ld uV",
-                             static_cast<long>(sample.shunt_voltage_uv));
+                    ESP_LOGW(
+                        TAG,
+                        "Calibration sample rejected due to light pulse / noise spike: %ld uV",
+                        static_cast<long>(sample.shunt_voltage_uv));
                 }
             }
         }
@@ -895,14 +898,19 @@ bool SolarSensor::process_night_calibration()
         std::sort(samples, samples + valid_samples);
         int16_t median_offset_uv = static_cast<int16_t>(samples[valid_samples / 2]);
         stats_.shunt_zero_offset_uv = median_offset_uv;
-        ESP_LOGI(TAG, "Night zero-current calibration complete: median offset = %d uV (%u valid samples)",
-                 median_offset_uv, valid_samples);
+        ESP_LOGI(
+            TAG,
+            "Night zero-current calibration complete: median offset = %d uV (%u valid samples)",
+            median_offset_uv,
+            valid_samples);
         pending_solar_commit_ = true;
         save_persistent_state();
     }
     else {
-        ESP_LOGW(TAG, "Night calibration skipped: insufficient valid samples (retaining previous offset = %d uV)",
-                 stats_.shunt_zero_offset_uv);
+        ESP_LOGW(
+            TAG,
+            "Night calibration skipped: insufficient valid samples (retaining previous offset = %d uV)",
+            stats_.shunt_zero_offset_uv);
     }
 
     enter_deep_sleep();
@@ -911,7 +919,8 @@ bool SolarSensor::process_night_calibration()
 
 bool SolarSensor::process_spurious_wake()
 {
-    // TODO: Implement lightning flash detection and event logging when night wake is triggered by brief nocturnal light pulses (e.g. lightning).
+    // TODO: Implement lightning flash detection and event logging when night wake is triggered by brief nocturnal light
+    // pulses (e.g. lightning).
     ESP_LOGI(TAG, "Spurious night wakeup detected. Re-entering deep sleep...");
     enter_deep_sleep();
     return false;

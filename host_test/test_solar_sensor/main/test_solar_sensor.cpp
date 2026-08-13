@@ -149,6 +149,22 @@ TEST_F(SolarSensorTest, RunProcessesOtaTriggerWhenSet)
 {
     sut_->on_ota_triggered(OtaTriggerSource::BUTTON);
 
+    InaSample sample{};
+    sample.isc_current_ma = 100;
+    sample.status = ESP_OK;
+
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
+        .WillOnce(::testing::Invoke([sample](QueueHandle_t, void* data, TickType_t) {
+            if (data) {
+                *reinterpret_cast<InaSample*>(data) = sample;
+            }
+            return pdTRUE;
+        }))
+        .WillRepeatedly(Return(pdFALSE));
+
     EXPECT_CALL(btn_trigger_, disarm()).Times(1);
     EXPECT_CALL(espnow_trigger_, disarm()).Times(1);
     EXPECT_CALL(mock_ina_task_, stop()).Times(1);
