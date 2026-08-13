@@ -215,3 +215,37 @@ TEST_F(SolarSensorTest, ProcessInaSampleUpdatesMaxDayCurrentAndAccumulatesYield)
     EXPECT_EQ(snap.max_current_ma, 1000);
     EXPECT_EQ(snap.daily_yield_mah, 1000);
 }
+
+TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesMedian)
+{
+    // Setup 9 samples: 7 valid zero-offset samples near 0uV, and 2 lightning spikes (+500uV and +1500uV)
+    std::vector<int32_t> raw_samples = {-10, 5, 500, 2, -2, 1500, 8, 0, -4};
+    size_t sample_idx = 0;
+
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
+        .WillRepeatedly(::testing::Invoke([&raw_samples, &sample_idx](QueueHandle_t, void* data, TickType_t) {
+            if (data && sample_idx < raw_samples.size()) {
+                InaSample s{};
+                s.shunt_voltage_uv = raw_samples[sample_idx++];
+                s.status = ESP_OK;
+                *reinterpret_cast<InaSample*>(data) = s;
+                return pdTRUE;
+            }
+            return pdFALSE;
+        }));
+
+    EXPECT_CALL(hal_sleep_, get_wakeup_cause()).WillRepeatedly(Return(ESP_SLEEP_WAKEUP_TIMER));
+    EXPECT_CALL(time_manager_, is_synchronized()).WillRepeatedly(Return(true));
+    EXPECT_CALL(time_manager_, get_timestamp_sec()).WillRepeatedly(Return(10800)); // 03:00 AM UTC
+
+    EXPECT_CALL(mock_ina_task_, prepare_for_sleep()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_sleep_, enable_timer_wakeup(_)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_sleep_, deep_sleep_enable_gpio_wakeup(_, _)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_sleep_, deep_sleep_start()).Times(1);
+
+    EXPECT_FALSE(sut_->run());
+
+    // Sorted valid samples (ignoring >100uV spikes 500uV and 1500uV): [-10, -4, -2, 0, 2, 5, 8]
+    // Median of 7 valid samples (index 7/2 = 3) is 0 uV!
+    EXPECT_EQ(sut_->get_solar_stats().shunt_zero_offset_uv, 0);
+}

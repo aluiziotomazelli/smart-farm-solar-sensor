@@ -69,6 +69,7 @@ public:
 
     CommandHandler& get_command_handler() { return command_handler_; }
     DayNightController& get_day_night_controller() { return day_night_controller_; }
+    const SolarStats& get_solar_stats() const { return stats_; }
 
 protected:
     CoreStorage core_;
