@@ -1,3 +1,12 @@
+# main/CMakeLists.txt
+
+# Fallback to secrets.example.hpp if secrets.hpp does not exist (e.g. on CI or fresh clone)
+if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/include/secrets.hpp")
+    message(STATUS "secrets.hpp not found, creating from secrets.example.hpp")
+    configure_file("${CMAKE_CURRENT_LIST_DIR}/include/secrets.example.hpp"
+                   "${CMAKE_CURRENT_LIST_DIR}/include/secrets.hpp" COPYONLY)
+endif()
+
 idf_component_register(
     SRCS
         "main.cpp"
