@@ -1,0 +1,41 @@
+# .github/workflows/build.yml
+name: ESP-IDF Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build_firmware:
+    name: Build Solar Sensor Firmware
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      IDF_CCACHE_ENABLE: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Cache for ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-ccache-esp32-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-esp32-${{ github.ref_name }}-
+            ${{ runner.os }}-ccache-esp32-
+            ${{ runner.os }}-ccache-
+
+      - name: Build Firmware
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          mkdir -p .ccache
+          idf.py set-target esp32c3
+          idf.py build

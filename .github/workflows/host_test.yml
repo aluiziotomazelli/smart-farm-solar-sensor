@@ -1,0 +1,94 @@
+# .github/workflows/host_test.yml
+name: Host Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  checks: write
+  pull-requests: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false 
+
+jobs:
+  host_tests:
+    name: Host Tests
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      IDF_CCACHE_ENABLE: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Cache for ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-ccache-host-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-host-${{ github.ref_name }}-
+            ${{ runner.os }}-ccache-host-
+            ${{ runner.os }}-ccache-
+
+      - name: Build all tests
+        shell: bash
+        working-directory: host_test
+        run: |
+          . $IDF_PATH/export.sh
+          mkdir -p ../.ccache
+          cmake -B build -S .
+          cmake --build build --target build_all_tests
+          cmake --build build --target coverage_clean
+
+      - name: Run tests
+        shell: bash
+        working-directory: host_test/build
+        run: |
+          . $IDF_PATH/export.sh
+          ctest --output-on-failure --output-junit test_results.xml --test-output-size-passed 65536 --test-output-size-failed 65536
+
+      - name: Run coverage
+        shell: bash
+        working-directory: host_test/build
+        run: |
+          . $IDF_PATH/export.sh
+          cmake --build . --target unified_coverage
+          touch ../coverage/.nojekyll
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-test-results
+          path: host_test/build/test_results.xml
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./host_test/coverage
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: host_tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy coverage to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
