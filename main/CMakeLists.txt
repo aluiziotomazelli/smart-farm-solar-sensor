@@ -30,7 +30,6 @@ idf_component_register(
         time_manager
         battery_monitor
         idf_hals
-        power_control
         ina226_driver
         ds18b20_driver
 )

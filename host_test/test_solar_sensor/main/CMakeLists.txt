@@ -18,8 +18,6 @@ idf_component_register(
         "../../../components/smart-farm-common/include/interfaces"
         "../../../components/smart-farm-common/host_test/common"
         "../../../components/idf_hals/mocks"
-        "../../../components/power_control/include"
-        "../../../components/power_control/include/interfaces"
         "../../../components/ina226_driver/include"
         "../../../components/ina226_driver/include/interfaces"
         "../../../components/ina226_driver/mocks"
@@ -42,7 +40,6 @@ idf_component_register(
     REQUIRES 
         gtest
         smart-farm-common
-        power_control
         ina226_driver
         espnow_manager
         ota_manager
