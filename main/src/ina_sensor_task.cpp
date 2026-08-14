@@ -279,12 +279,14 @@ esp_err_t InaSensorTask::send_telemetry_report(uint16_t current_ma)
     TelemetrySnapshotData snap = snapshot_.get();
 
     farm::SolarSensorReport report{};
-    report.power_profile = farm::PowerProfile::ALWAYS_ON;
+    report.power_profile = snap.is_night_mode ? farm::PowerProfile::DEEP_SLEEP : farm::PowerProfile::ALWAYS_ON;
     report.isc_current_ma = current_ma;
 
     float current_f = static_cast<float>(current_ma);
     report.irradiance_wm2 = static_cast<uint16_t>((current_f * 5.0f) / 3.0f);
-    report.panel_temp_c = INT16_MIN; ///< INT16_MIN until DS18B20 driver reading is integrated
+    report.panel_temp_c = (snap.temperature_celsius > -100.0f)
+                              ? static_cast<int16_t>(std::round(snap.temperature_celsius * 10.0f))
+                              : INT16_MIN;
     report.battery_mv = snap.battery_mv;
     report.battery_percent = snap.battery_percent;
     report.battery_state = snap.battery_state;

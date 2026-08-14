@@ -1,6 +1,9 @@
 // main/src/solar_sensor.cpp
 #include "solar_sensor.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "secrets.hpp"
 #include "ina_sensor_types.hpp"
 
@@ -565,7 +568,32 @@ bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minu
         if (day_night_controller_.should_enter_night_mode(
                 sample.isc_current_ma, is_synced, hour, minute, day_of_year)) {
             ESP_LOGI(TAG, "Dusk detected (current: %u mA). Entering night sleep...", sample.isc_current_ma);
+            stats_.is_night_mode = true;
             telemetry_snapshot_.set_night_mode(true);
+            core_.power_profile = farm::PowerProfile::DEEP_SLEEP;
+
+            ina_sensor_task_.stop();
+            slow_sensors_task_.stop();
+
+            send_night_transition_report(/*requires_ack=*/true);
+
+            hal_rtos_.task_delay(pdMS_TO_TICKS(100));
+
+            CommandProcessResult cmd_res = command_handler_.process();
+            if (cmd_res.core_modified) {
+                pending_core_commit_ = true;
+            }
+            if (cmd_res.reboot_requested) {
+                pending_core_commit_ = true;
+                pending_solar_commit_ = true;
+                save_persistent_state();
+                hal_system_.restart();
+                return true;
+            }
+            if (cmd_res.ota_requested) {
+                process_pending_ota();
+                return true;
+            }
 
             pending_core_commit_ = true;
             pending_solar_commit_ = true;
@@ -840,6 +868,7 @@ void SolarSensor::on_dawn_start()
     yield_umah_accumulator_ = 0;
     stats_.daily_yield_mah = 0;
     stats_.is_night_mode = false;
+    core_.power_profile = farm::PowerProfile::ALWAYS_ON;
 
     telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
     telemetry_snapshot_.set_night_mode(false);
@@ -847,11 +876,16 @@ void SolarSensor::on_dawn_start()
     ina_sensor_task_.set_shunt_zero_offset_uv(stats_.shunt_zero_offset_uv);
     ina_sensor_task_.set_reporting_enabled(true);
     pending_solar_commit_ = true;
+    pending_core_commit_ = true;
 }
 
 bool SolarSensor::process_night_calibration()
 {
     ESP_LOGI(TAG, "Starting 03:00 AM UTC night calibration...");
+
+    stats_.is_night_mode = true;
+    telemetry_snapshot_.set_night_mode(true);
+    core_.power_profile = farm::PowerProfile::DEEP_SLEEP;
 
     static constexpr uint8_t TARGET_SAMPLES = 9;
     static constexpr int32_t MAX_SANITY_OFFSET_UV = 100; // Max 100 uV (1.0 mA) nocturnal offset limit
@@ -886,7 +920,6 @@ bool SolarSensor::process_night_calibration()
             median_offset_uv,
             valid_samples);
         pending_solar_commit_ = true;
-        save_persistent_state();
     }
     else {
         ESP_LOGW(
@@ -894,6 +927,30 @@ bool SolarSensor::process_night_calibration()
             "Night calibration skipped: insufficient valid samples (retaining previous offset = %d uV)",
             stats_.shunt_zero_offset_uv);
     }
+
+    send_night_transition_report(/*requires_ack=*/true);
+
+    hal_rtos_.task_delay(pdMS_TO_TICKS(100));
+
+    CommandProcessResult cmd_res = command_handler_.process();
+    if (cmd_res.core_modified) {
+        pending_core_commit_ = true;
+    }
+    if (cmd_res.reboot_requested) {
+        pending_core_commit_ = true;
+        pending_solar_commit_ = true;
+        save_persistent_state();
+        hal_system_.restart();
+        return false;
+    }
+    if (cmd_res.ota_requested) {
+        process_pending_ota();
+        return false;
+    }
+
+    pending_core_commit_ = true;
+    pending_solar_commit_ = true;
+    save_persistent_state();
 
     enter_deep_sleep();
     return false;
@@ -906,4 +963,43 @@ bool SolarSensor::process_spurious_wake()
     ESP_LOGI(TAG, "Spurious night wakeup detected. Re-entering deep sleep...");
     enter_deep_sleep();
     return false;
+}
+
+esp_err_t SolarSensor::send_night_transition_report(bool requires_ack)
+{
+    TelemetrySnapshotData snap = telemetry_snapshot_.get();
+
+    farm::SolarSensorReport report{};
+    report.power_profile = core_.power_profile;
+    report.isc_current_ma = 0;
+    report.irradiance_wm2 = 0;
+    report.panel_temp_c = (snap.temperature_celsius > -100.0f)
+                              ? static_cast<int16_t>(std::round(snap.temperature_celsius * 10.0f))
+                              : INT16_MIN;
+    report.battery_mv = snap.battery_mv;
+    report.battery_percent = snap.battery_percent;
+    report.battery_state = snap.battery_state;
+    report.status = farm::SensorStatus::OK;
+    report.max_current_ma = stats_.max_day_current_ma;
+    report.daily_yield_mah = stats_.daily_yield_mah;
+    report.is_night_mode = stats_.is_night_mode;
+    report.unix_time = time_manager_.is_synchronized() ? time_manager_.get_timestamp_ms() : 0;
+
+    ESP_LOGI(
+        TAG,
+        "TX Night Telemetry Report: profile=%d, Bat=%u mV (%u%%), Temp=%d (0.1C), MaxDay=%u mA, Yield=%lu mAh, ACK=%d",
+        static_cast<int>(report.power_profile),
+        report.battery_mv,
+        report.battery_percent,
+        report.panel_temp_c,
+        report.max_current_ma,
+        static_cast<unsigned long>(report.daily_yield_mah),
+        requires_ack);
+
+    return espnow_.send_data(
+        espnow::ReservedIds::HUB,
+        static_cast<uint8_t>(farm::PayloadType::SOLAR_SENSOR_REPORT),
+        &report,
+        sizeof(report),
+        requires_ack);
 }

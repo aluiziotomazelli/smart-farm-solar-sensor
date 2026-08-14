@@ -12,6 +12,9 @@ All notable changes to the `smart-farm-solar-sensor` project will be documented 
 - Real-time ESP-NOW telemetry broadcasting to the central Hub (`farm::SolarSensorReport`).
 - Astronomical day/night detection and power management (`DayNightController`) featuring solar declination algorithms, dusk/dawn threshold filtering, and deep sleep scheduling.
 - Dual-tier persistence engine (`SolarSensorNvs`) leveraging RTC Fast Memory and Flash NVS with CRC32 integrity checks.
+- Reliable day/night power profile handshake: broadcasts final telemetry report with mandatory ESP-NOW ACK before deep sleep and night calibration, allowing Hub to queue downstream commands.
+- Post-transmission command draining window (100ms) during night cycles ensuring time synchronization (`SYNC_TIME`) and remote commands are processed and committed prior to deep sleep.
+- Dynamic `PowerProfile` synchronization (`ALWAYS_ON` $\leftrightarrow$ `DEEP_SLEEP`) reflected across `CoreStorage` and `TelemetrySnapshot`.
 - Remote ESP-NOW command processing (`CommandHandler`) supporting clock synchronization (`SYNC_TIME`), OTA update initiation (`START_OTA`), and remote reboot (`REBOOT`).
 - Over-The-Air (OTA) firmware upgrade management and rollback protection (`OtaController`) integrated with `ota_manager`.
 - Modular host-based testing architecture with GoogleTest/GoogleMock across 7 dedicated subprojects (66 unit tests).

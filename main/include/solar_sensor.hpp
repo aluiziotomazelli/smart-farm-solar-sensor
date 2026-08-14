@@ -129,6 +129,7 @@ private:
     bool process_spurious_wake();
     bool run_day_cycle();
     void enter_deep_sleep();
+    esp_err_t send_night_transition_report(bool requires_ack);
 
     esp_err_t init_ina_alert_pin();
     static void IRAM_ATTR ina_alert_isr_handler(void* arg);
