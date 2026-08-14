@@ -30,10 +30,6 @@
 	path = components/ina226_driver
 	url = https://github.com/aluiziotomazelli/ina226_driver
 	branch = main
-[submodule "components/power_control"]
-	path = components/power_control
-	url = https://github.com/aluiziotomazelli/power_control.git
-	branch = main
 [submodule "components/ds18b20_driver"]
 	path = components/ds18b20_driver
 	url = https://github.com/aluiziotomazelli/ds18b20_driver.git
