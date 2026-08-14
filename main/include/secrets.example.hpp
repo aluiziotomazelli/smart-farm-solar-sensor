@@ -35,12 +35,6 @@
 //   esp_err_t add_peer(NodeId node_id, const uint8_t* mac, NodeType type, uint32_t heartbeat_interval_ms);
 //
 // Example usage:
-//   static const uint8_t HUB_MAC[6] = { HUB_MAC_0, HUB_MAC_1, HUB_MAC_2, HUB_MAC_3, HUB_MAC_4, HUB_MAC_5 };
 //   espnow.add_peer(ReservedIds::HUB, HUB_MAC, NodeType::HUB, 60000);
 //
-#define HUB_MAC_0 0xAA
-#define HUB_MAC_1 0xBB
-#define HUB_MAC_2 0xCC
-#define HUB_MAC_3 0xDD
-#define HUB_MAC_4 0xEE
-#define HUB_MAC_5 0xFF
+static constexpr uint8_t HUB_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};

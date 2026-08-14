@@ -3,6 +3,15 @@
 
 get_filename_component(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
+# Fallback to secrets.example.hpp if secrets.hpp does not exist (e.g. on CI or fresh clone)
+if(NOT EXISTS "${PROJECT_ROOT}/main/include/secrets.hpp")
+    if(EXISTS "${PROJECT_ROOT}/main/include/secrets.example.hpp")
+        message(STATUS "secrets.hpp not found in host_test, creating from secrets.example.hpp")
+        configure_file("${PROJECT_ROOT}/main/include/secrets.example.hpp"
+                       "${PROJECT_ROOT}/main/include/secrets.hpp" COPYONLY)
+    endif()
+endif()
+
 list(APPEND EXTRA_COMPONENT_DIRS
     "${PROJECT_ROOT}/components/smart-farm-common"
     "${PROJECT_ROOT}/components/smart-farm-common/host_test/common"

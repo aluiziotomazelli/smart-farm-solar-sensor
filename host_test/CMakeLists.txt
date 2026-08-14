@@ -4,6 +4,15 @@ project(solar_sensor_host_tests NONE)
 # Enable CTest for this project
 include(CTest)
 
+get_filename_component(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+if(NOT EXISTS "${PROJECT_ROOT}/main/include/secrets.hpp")
+    if(EXISTS "${PROJECT_ROOT}/main/include/secrets.example.hpp")
+        message(STATUS "secrets.hpp not found, creating from secrets.example.hpp")
+        configure_file("${PROJECT_ROOT}/main/include/secrets.example.hpp"
+                       "${PROJECT_ROOT}/main/include/secrets.hpp" COPYONLY)
+    endif()
+endif()
+
 # Define the tests for CTest.
 add_test(NAME test_solar_sensor COMMAND ../test_solar_sensor/build/test_solar_sensor.elf)
 add_test(NAME test_slow_sensors_task COMMAND ../test_slow_sensors_task/build/test_slow_sensors_task.elf)
