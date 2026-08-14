@@ -12,6 +12,7 @@ struct TelemetrySnapshotData
     uint16_t max_current_ma{0};
     uint32_t daily_yield_mah{0};
     bool is_night_mode{false};
+    float temperature_celsius{-127.0f};
 };
 
 class TelemetrySnapshot
@@ -23,6 +24,12 @@ public:
         data_.battery_mv = mv;
         data_.battery_percent = percent;
         data_.battery_state = state;
+    }
+
+    void update_temperature(float temp_c)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        data_.temperature_celsius = temp_c;
     }
 
     void update_stats(uint16_t max_current_ma, uint32_t daily_yield_mah)

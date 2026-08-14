@@ -4,7 +4,7 @@
 
 #include "solar_sensor.hpp"
 #include "mock_ina_sensor_task.hpp"
-#include "mock_battery_monitor.hpp"
+#include "mock_slow_sensors_task.hpp"
 #include "mock_espnow_manager.hpp"
 #include "mock_time_manager.hpp"
 #include "mock_persistence_backend.hpp"
@@ -64,7 +64,7 @@ protected:
     NiceMock<ina::MockInaSensorTask> mock_ina_task_;
     QueueHandle_t dummy_queue_ = reinterpret_cast<QueueHandle_t>(0x5678);
     TelemetrySnapshot snapshot_;
-    NiceMock<battery_monitor::MockBatteryMonitor> mock_bat_monitor_;
+    NiceMock<MockSlowSensorsTask> mock_slow_sensors_task_;
 
     NiceMock<MockPersistenceBackend> rtc_core_backend_;
     NiceMock<MockPersistenceBackend> nvs_core_backend_;
@@ -100,15 +100,27 @@ protected:
 
         ON_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillByDefault(Return(pdFALSE));
         ON_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillByDefault(Return(pdFALSE));
-        ON_CALL(mock_bat_monitor_, is_initialized()).WillByDefault(Return(true));
+        ON_CALL(mock_slow_sensors_task_, init()).WillByDefault(Return(ESP_OK));
+        ON_CALL(mock_slow_sensors_task_, start()).WillByDefault(Return(ESP_OK));
         ON_CALL(mock_ina_task_, is_sampling_enabled()).WillByDefault(Return(true));
         ON_CALL(mock_ina_task_, is_reporting_enabled()).WillByDefault(Return(true));
+        ON_CALL(mock_ina_task_, init(_, _)).WillByDefault(Return(ESP_OK));
+        ON_CALL(ota_manager_, init(_)).WillByDefault(Return(true));
+        ON_CALL(ota_manager_, check_pending_verify()).WillByDefault(Return(false));
+        ON_CALL(ota_manager_, confirm_app_valid()).WillByDefault(Return(true));
+        ON_CALL(wifi_, init(_)).WillByDefault(Return(ESP_OK));
+        ON_CALL(wifi_, start(_)).WillByDefault(Return(ESP_OK));
+        ON_CALL(wifi_, add_credentials(_, _)).WillByDefault(Return(ESP_OK));
+        ON_CALL(time_manager_, init(_)).WillByDefault(Return(ESP_OK));
+        ON_CALL(espnow_, init(_)).WillByDefault(Return(ESP_OK));
+        ON_CALL(hal_gpio_, config(_)).WillByDefault(Return(ESP_OK));
+        ON_CALL(hal_gpio_, isr_handler_add(_, _, _)).WillByDefault(Return(ESP_OK));
 
         sut_ = std::make_unique<SolarSensor>(
             mock_ina_task_,
             dummy_queue_,
             snapshot_,
-            mock_bat_monitor_,
+            mock_slow_sensors_task_,
             core_storage_,
             solar_storage_,
             hal_timer_,
@@ -127,22 +139,12 @@ protected:
     }
 };
 
-TEST_F(SolarSensorTest, UpdateBatterySnapshotReadsBatteryAndPopulatesSnapshot)
+TEST_F(SolarSensorTest, InitInitializesAndStartsSlowSensorsTask)
 {
-    battery_monitor::BatteryReading reading{};
-    reading.voltage_mv = 3900;
-    reading.adc_mv = 1950;
-    reading.percent = 66;
-    reading.state = battery_monitor::BatteryState::NORMAL;
+    EXPECT_CALL(mock_slow_sensors_task_, init()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_slow_sensors_task_, start()).WillOnce(Return(ESP_OK));
 
-    EXPECT_CALL(mock_bat_monitor_, read(_)).WillOnce(DoAll(SetArgReferee<0>(reading), Return(ESP_OK)));
-
-    EXPECT_EQ(sut_->update_battery_snapshot(), ESP_OK);
-
-    TelemetrySnapshotData snap = snapshot_.get();
-    EXPECT_EQ(snap.battery_mv, 3900);
-    EXPECT_EQ(snap.battery_percent, 66);
-    EXPECT_EQ(snap.battery_state, farm::BatteryState::NORMAL);
+    EXPECT_EQ(sut_->init(), ESP_OK);
 }
 
 TEST_F(SolarSensorTest, RunProcessesOtaTriggerWhenSet)

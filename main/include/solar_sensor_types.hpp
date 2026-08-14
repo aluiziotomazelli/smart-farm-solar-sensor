@@ -13,6 +13,7 @@ static constexpr gpio_num_t INA_VCC_GPIO = GPIO_NUM_5;       // D3 - INA VCC Pow
 static constexpr gpio_num_t INA_ALERT_GPIO = GPIO_NUM_3;     // INA ALERT (C3: only GPIO0-5 wake from deep sleep)
 static constexpr gpio_num_t I2C_SDA_GPIO = GPIO_NUM_6;       // D4
 static constexpr gpio_num_t I2C_SCL_GPIO = GPIO_NUM_7;       // D5
+static constexpr gpio_num_t DS18B20_GPIO = GPIO_NUM_20;      // D7 - DS18B20 DQ (1-Wire)
 
 // DayNightController Constants
 static constexpr uint32_t DEFAULT_FALLBACK_NIGHT_SLEEP_SEC =

@@ -16,7 +16,7 @@
 #include "interfaces/i_hal_i2c.hpp"
 
 #include "interfaces/i_ina_sensor_task.hpp"
-#include "interfaces/i_battery_monitor.hpp"
+#include "interfaces/i_slow_sensors_task.hpp"
 #include "command_handler.hpp"
 #include "day_night_controller.hpp"
 #include "ota_controller.hpp"
@@ -35,7 +35,7 @@ public:
         ina::IInaSensorTask& ina_sensor_task,
         QueueHandle_t ina_sample_queue,
         TelemetrySnapshot& telemetry_snapshot,
-        battery_monitor::IBatteryMonitor& bat_monitor,
+        ISlowSensorsTask& slow_sensors_task,
         INvsCore& core_storage,
         ISolarSensorNvs& solar_storage,
         idf_hals::ITimerHAL& hal_timer,
@@ -65,8 +65,6 @@ public:
     /** @copydoc IOtaTriggerListener::on_ota_triggered */
     void on_ota_triggered(OtaTriggerSource source) override;
 
-    esp_err_t update_battery_snapshot();
-
     CommandHandler& get_command_handler() { return command_handler_; }
     DayNightController& get_day_night_controller() { return day_night_controller_; }
     const SolarStats& get_solar_stats() const { return stats_; }
@@ -83,7 +81,7 @@ private:
     ina::IInaSensorTask& ina_sensor_task_;
     QueueHandle_t ina_sample_queue_;
     TelemetrySnapshot& telemetry_snapshot_;
-    battery_monitor::IBatteryMonitor& bat_monitor_;
+    ISlowSensorsTask& slow_sensors_task_;
     INvsCore& core_storage_;
     ISolarSensorNvs& solar_storage_;
     idf_hals::ITimerHAL& hal_timer_;

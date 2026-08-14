@@ -32,7 +32,7 @@ SolarSensor::SolarSensor(
     ina::IInaSensorTask& ina_sensor_task,
     QueueHandle_t ina_sample_queue,
     TelemetrySnapshot& telemetry_snapshot,
-    battery_monitor::IBatteryMonitor& bat_monitor,
+    ISlowSensorsTask& slow_sensors_task,
     INvsCore& core_storage,
     ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
@@ -51,7 +51,7 @@ SolarSensor::SolarSensor(
     : ina_sensor_task_(ina_sensor_task)
     , ina_sample_queue_(ina_sample_queue)
     , telemetry_snapshot_(telemetry_snapshot)
-    , bat_monitor_(bat_monitor)
+    , slow_sensors_task_(slow_sensors_task)
     , core_storage_(core_storage)
     , solar_storage_(solar_storage)
     , hal_timer_(hal_timer)
@@ -117,9 +117,13 @@ esp_err_t SolarSensor::init()
         session_healthy_ = false;
     }
 
-    // 5. Initialize Battery Monitor
-    if ((err = bat_monitor_.init()) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize BatteryMonitor: %s", esp_err_to_name(err));
+    // 5. Initialize and start SlowSensorsTask (Battery + DS18B20)
+    if ((err = slow_sensors_task_.init()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize SlowSensorsTask: %s", esp_err_to_name(err));
+        session_healthy_ = false;
+    }
+    if ((err = slow_sensors_task_.start()) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start SlowSensorsTask: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
 
@@ -227,10 +231,7 @@ bool SolarSensor::run_day_cycle()
         ota_triggered_ = false;
     }
 
-    // 3. Update battery snapshot
-    update_battery_snapshot();
-
-    // 4. Extract current time information for dusk/solar calculations
+    // 3. Extract current time information for dusk/solar calculations
     bool is_synced = time_manager_.is_synchronized();
     uint8_t hour = 0;
     uint8_t minute = 0;
@@ -245,12 +246,12 @@ bool SolarSensor::run_day_cycle()
         day_of_year = static_cast<uint16_t>(timeinfo.tm_yday + 1);
     }
 
-    // 5. Process INA samples and check dusk condition
+    // 4. Process INA samples and check dusk condition
     if (process_ina_samples(is_synced, hour, minute, day_of_year)) {
         return false; // Entered deep sleep
     }
 
-    // 6. Routine persistent storage save
+    // 5. Routine persistent storage save
     save_persistent_state();
 
     return true;
@@ -260,30 +261,6 @@ void SolarSensor::on_ota_triggered(OtaTriggerSource source)
 {
     ESP_LOGI(TAG, "OTA triggered from source: %d", static_cast<int>(source));
     ota_triggered_ = true;
-}
-
-esp_err_t SolarSensor::update_battery_snapshot()
-{
-    if (!bat_monitor_.is_initialized()) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    battery_monitor::BatteryReading reading{};
-    esp_err_t err = bat_monitor_.read(reading);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read battery monitor: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    farm::BatteryState bat_state = static_cast<farm::BatteryState>(reading.state);
-
-    telemetry_snapshot_.update_battery(reading.voltage_mv, reading.percent, bat_state);
-
-    stats_.last_battery_mv = reading.voltage_mv;
-    stats_.last_battery_percent = reading.percent;
-    stats_.last_battery_state = bat_state;
-
-    return ESP_OK;
 }
 
 // ===================================================================
@@ -386,6 +363,11 @@ esp_err_t SolarSensor::init_espnow()
 static constexpr uint32_t NVS_PERIODIC_COMMIT_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 void SolarSensor::save_persistent_state()
 {
+    auto snap = telemetry_snapshot_.get();
+    stats_.last_battery_mv = snap.battery_mv;
+    stats_.last_battery_percent = snap.battery_percent;
+    stats_.last_battery_state = snap.battery_state;
+
     int64_t now_ms = hal_timer_.get_time_us() / 1000;
 
     bool periodic_commit =

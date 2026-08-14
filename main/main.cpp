@@ -34,6 +34,9 @@
 #include "hal_i2c.hpp"
 #include "ina226_driver.hpp"
 #include "ina_sensor_task.hpp"
+#include "ds18b20_driver.hpp"
+#include "hal_onewire_bus.hpp"
+#include "slow_sensors_task.hpp"
 #include "telemetry_snapshot.hpp"
 
 #include "secrets.hpp"
@@ -61,6 +64,7 @@ static idf_hals::SleepHAL hal_sleep;
 static idf_hals::SystemHAL hal_system;
 static idf_hals::HalSystemTime hal_sys_time;
 static idf_hals::HalSntp hal_sntp;
+static ds18b20::OnewireBusHAL hal_onewire;
 
 // INA226 Driver
 // The daytime regime is the default: build the driver with the day conversion
@@ -89,6 +93,27 @@ static battery_monitor::BatteryMonitorConfig monitor_config = {
 
 static battery_monitor::AdcBatteryReader adc_reader{hal_oneshot, hal_cali, hal_sys_rom, adc_config};
 static battery_monitor::BatteryMonitor bat_monitor{adc_reader, monitor_config};
+
+// DS18B20 1-Wire Driver
+static ds18b20::Ds18b20Config ds18b20_config{
+    .gpio_num = static_cast<int>(DS18B20_GPIO),
+    .max_rx_bytes = 10,
+    .enable_pullup = true,
+    .initial_resolution = ds18b20::Resolution::BITS_12,
+};
+static ds18b20::Ds18b20Driver ds18b20_driver{hal_onewire, ds18b20_config};
+
+// Telemetry Snapshot
+static TelemetrySnapshot g_telemetry_snapshot;
+
+// SlowSensorsTask (Battery + DS18B20)
+static SlowSensorsConfig slow_sensors_config{
+    .sample_interval_ms = 60000,
+    .task_stack_size = 3072,
+    .task_priority = 2,
+};
+static SlowSensorsTask slow_sensors_task{
+    bat_monitor, ds18b20_driver, hal_freertos, g_telemetry_snapshot, slow_sensors_config};
 
 // Persistence and App instantiation
 static RTC_DATA_ATTR CoreStorage g_rtc_core;
@@ -124,7 +149,6 @@ static ButtonOtaTrigger btn_trigger(hal_gpio, hal_freertos, BOOT_BUTTON_GPIO, 20
 static EspNowOtaTrigger espnow_ota_trigger;
 
 static time_manager::TimeManager time_mgr{hal_sntp, hal_sys_time};
-static TelemetrySnapshot g_telemetry_snapshot;
 
 extern "C" void app_main()
 {
@@ -147,7 +171,7 @@ extern "C" void app_main()
         ina_task,
         ina_sample_queue,
         g_telemetry_snapshot,
-        bat_monitor,
+        slow_sensors_task,
         nvs_core,
         nvs_solar,
         hal_timer,

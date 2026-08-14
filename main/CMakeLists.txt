@@ -7,6 +7,7 @@ idf_component_register(
         "src/command_handler.cpp"
         "src/day_night_controller.cpp"
         "src/ota_controller.cpp"
+        "src/slow_sensors_task.cpp"
     INCLUDE_DIRS
         "include"
         "include/interfaces"
@@ -21,4 +22,5 @@ idf_component_register(
         idf_hals
         power_control
         ina226_driver
+        ds18b20_driver
 )
