@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory>
 #include "day_night_controller.hpp"
 
 class DayNightControllerTest : public ::testing::Test

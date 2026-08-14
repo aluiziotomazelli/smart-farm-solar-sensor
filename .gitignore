@@ -6,6 +6,8 @@ dependencies.lock
 managed_components/
 
 # Host test build artifacts
+host_test/build/
+host_test/coverage/
 host_test/**/build/
 host_test/**/.cache/
 host_test/**/coverage/
