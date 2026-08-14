@@ -241,8 +241,11 @@ TEST_F(SolarSensorTest, ProcessInaSampleUpdatesMaxDayCurrentAndAccumulatesYield)
 
 TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesMedian)
 {
-    // Setup 9 samples: 7 valid zero-offset samples near 0uV, and 2 lightning spikes (+500uV and +1500uV)
-    std::vector<int32_t> raw_samples = {-10, 5, 500, 2, -2, 1500, 8, 0, -4};
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+
+    // Setup 10 samples: 1 initial sample consumed by evaluate_boot_mode(), followed by 9 calibration samples
+    // (7 valid zero-offset samples near 0uV, and 2 lightning spikes +500uV and +1500uV)
+    std::vector<int32_t> raw_samples = {0, -10, 5, 500, 2, -2, 1500, 8, 0, -4};
     size_t sample_idx = 0;
 
     EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
@@ -268,7 +271,7 @@ TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesM
 
     EXPECT_FALSE(sut_->run());
 
-    // Sorted valid samples (ignoring >100uV spikes 500uV and 1500uV): [-10, -4, -2, 0, 2, 5, 8]
+    // Sorted valid calibration samples (ignoring >100uV spikes 500uV and 1500uV): [-10, -4, -2, 0, 2, 5, 8]
     // Median of 7 valid samples (index 7/2 = 3) is 0 uV!
     EXPECT_EQ(sut_->get_solar_stats().shunt_zero_offset_uv, 0);
 }
