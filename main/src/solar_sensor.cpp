@@ -14,6 +14,7 @@
 static const char* TAG = "SolarSensor";
 
 static constexpr uint16_t DEEP_SLEEP_TIME_MIN = 60;
+static constexpr uint32_t IDLE_RECONNECT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ============== INA226 Config ==============
 // The daytime regime is the default and lives in the Ina226Driver construction
@@ -50,7 +51,8 @@ SolarSensor::SolarSensor(
     time_manager::ITimeManager& time_manager,
     idf_hals::IHalFreertos& hal_freertos,
     idf_hals::IGpioHAL& hal_gpio,
-    idf_hals::II2cHAL& hal_i2c)
+    idf_hals::II2cHAL& hal_i2c,
+    ILedController& led)
     : ina_sensor_task_(ina_sensor_task)
     , ina_sample_queue_(ina_sample_queue)
     , telemetry_snapshot_(telemetry_snapshot)
@@ -70,6 +72,7 @@ SolarSensor::SolarSensor(
     , hal_rtos_(hal_freertos)
     , hal_gpio_(hal_gpio)
     , hal_i2c_(hal_i2c)
+    , led_(led)
     , command_handler_(rx_queue_, espnow_, time_manager_, core_, hal_rtos_)
 {
 }
@@ -77,6 +80,12 @@ SolarSensor::SolarSensor(
 esp_err_t SolarSensor::init()
 {
     esp_err_t err;
+
+    // 0. Initialize and start Status LED Controller
+    if ((err = led_.init()) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to initialize LedController: %s", esp_err_to_name(err));
+    }
+    led_.start();
 
     // Arm OTA triggers
     btn_trigger_.arm(*this);
@@ -96,6 +105,7 @@ esp_err_t SolarSensor::init()
 
     if (!ota_controller_.init(ota_config)) {
         ESP_LOGW(TAG, "Failed to initialize OtaController config");
+        led_.set_pattern(BlinkPattern::ERROR_BURST);
         return ESP_FAIL;
     }
 
@@ -168,6 +178,7 @@ esp_err_t SolarSensor::init()
         else if (!verify.success) {
             ESP_LOGE(
                 TAG, "Post-boot OTA verification failed! Delaying for report transmission then triggering rollback...");
+            led_.set_pattern(BlinkPattern::ERROR_BURST);
             hal_rtos_.task_delay(pdMS_TO_TICKS(500));
             ota_controller_.rollback_and_reboot();
             return ESP_FAIL;
@@ -176,9 +187,11 @@ esp_err_t SolarSensor::init()
 
     if (!session_healthy_) {
         ESP_LOGE(TAG, "SolarSensor session not healthy during boot initialization");
+        led_.set_pattern(BlinkPattern::ERROR_BURST);
         return ESP_FAIL;
     }
 
+    led_.set_pattern(BlinkPattern::BOOT_SUCCESS);
     ESP_LOGI(TAG, "SolarSensor initialized");
     return ESP_OK;
 }
@@ -190,10 +203,12 @@ bool SolarSensor::run()
         WakeType wake = evaluate_boot_mode();
 
         if (wake == WakeType::CALIBRATION_TIMER) {
-            return process_night_calibration();
+            process_night_calibration();
+            return false;
         }
         if (wake == WakeType::SPURIOUS_TIMER) {
-            return process_spurious_wake();
+            process_spurious_wake();
+            return false;
         }
 
         on_dawn_start();
@@ -206,32 +221,16 @@ bool SolarSensor::run_day_cycle()
 {
     ESP_LOGD(TAG, "SolarSensor running day cycle");
 
-    // TODO: verify espnow::NodeState, if the hub stays long time offline, the sensor will attempt to RECOVERY_SCAN
-    // sometimes until giveup and stays in IDLE state until reconnect is called
+    // 1. Check ESP-NOW connection and auto-reconnect if stuck in IDLE
+    check_espnow_connection();
 
-    // 1. Process pending ESP-NOW commands
+    // 2. Process pending ESP-NOW commands
     CommandProcessResult cmd_res = command_handler_.process();
-    if (cmd_res.core_modified) {
-        pending_core_commit_ = true;
-    }
-    if (cmd_res.ota_requested) {
-        ota_triggered_ = true;
-    }
-    if (cmd_res.reboot_requested) {
-        ESP_LOGW(TAG, "Reboot requested via command! Saving state and disconnecting WiFi...");
-        pending_core_commit_ = true;
-        pending_solar_commit_ = true;
-        save_persistent_state();
-        wifi_.disconnect(2000);
-        espnow_.deinit();
-        hal_system_.restart();
-        return false;
-    }
+    handle_command_process_result(cmd_res);
 
-    // 2. Process pending OTA triggers
+    // 3. Process pending OTA triggers
     if (ota_triggered_) {
         process_pending_ota();
-        ota_triggered_ = false;
     }
 
     // 3. Extract current time information for dusk/solar calculations
@@ -402,7 +401,10 @@ void SolarSensor::save_persistent_state()
 
 void SolarSensor::process_pending_ota()
 {
+    ota_triggered_ = false;
+
     ESP_LOGI(TAG, "Processing pending OTA update...");
+    led_.set_pattern(BlinkPattern::OTA_UPDATING);
 
     btn_trigger_.disarm();
     espnow_trigger_.disarm();
@@ -432,11 +434,13 @@ void SolarSensor::process_pending_ota()
         }
         else {
             ESP_LOGE(TAG, "OTA download failed (error_code: %d)", static_cast<int>(dl.error_code));
+            led_.set_pattern(BlinkPattern::ERROR_BURST);
             send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, dl.error_code);
         }
     }
     else {
         ESP_LOGE(TAG, "Failed to connect to WiFi");
+        led_.set_pattern(BlinkPattern::ERROR_BURST);
         send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, farm::OtaErrorCode::WIFI_CONNECT_FAILED);
     }
 
@@ -579,25 +583,7 @@ bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minu
 
             hal_rtos_.task_delay(pdMS_TO_TICKS(100));
 
-            CommandProcessResult cmd_res = command_handler_.process();
-            if (cmd_res.core_modified) {
-                pending_core_commit_ = true;
-            }
-            if (cmd_res.reboot_requested) {
-                pending_core_commit_ = true;
-                pending_solar_commit_ = true;
-                save_persistent_state();
-                hal_system_.restart();
-                return true;
-            }
-            if (cmd_res.ota_requested) {
-                process_pending_ota();
-                return true;
-            }
-
-            pending_core_commit_ = true;
-            pending_solar_commit_ = true;
-            save_persistent_state();
+            handle_command_process_result(command_handler_.process());
 
             enter_deep_sleep();
             return true;
@@ -705,6 +691,10 @@ esp_err_t SolarSensor::init_ina_vcc_pin()
 
 void SolarSensor::enter_deep_sleep()
 {
+    led_.set_pattern(BlinkPattern::ENTER_SLEEP);
+    hal_rtos_.task_delay(pdMS_TO_TICKS(350));
+    led_.stop();
+
     espnow_.deinit();
     wifi_.disconnect(2000);
     wifi_.stop(2000);
@@ -762,61 +752,32 @@ esp_err_t SolarSensor::init_ina_alert_pin()
 
     esp_err_t err = hal_gpio_.config(&alert_cfg);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize INA alert GPIO: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to configure INA alert pin: %s", esp_err_to_name(err));
         return err;
     }
 
-    // Allocate the ISR from IRAM so it can fire while the flash cache is
-    // disabled (e.g. during NVS commits) — the handler itself is IRAM_ATTR.
-    err = hal_gpio_.install_isr_service(ESP_INTR_FLAG_IRAM);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "Failed to install INA alert GPIO ISR service: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    // Drop any previous registration first: after a recovery the task is
-    // recreated with a new handle, so the ISR must be re-attached with the
-    // fresh handle instead of notifying a deleted task.
-    err = hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "Failed to remove stale INA alert GPIO ISR: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, ina_sensor_task_.get_task_handle());
+    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, this);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to attach INA alert GPIO ISR handler: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to add INA alert ISR handler: %s", esp_err_to_name(err));
         return err;
     }
 
+    ESP_LOGI(TAG, "INA alert pin (GPIO %d) configured", INA_ALERT_GPIO);
     return ESP_OK;
 }
 
-/**
- * @brief Alert interrupt service routine
- *
- * @param arg Task handle to be notified
- *
- * @note This ISR runs in IRAM for fast execution and notifies the INA sensor
- * task on every completed conversion (CNVR). It uses DRAM logging to avoid
- * flash access during interrupt handling.
- */
 void IRAM_ATTR SolarSensor::ina_alert_isr_handler(void* arg)
 {
-    TaskHandle_t task_handle = static_cast<TaskHandle_t>(arg);
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-    if (task_handle != nullptr) {
-        vTaskNotifyGiveFromISR(task_handle, &xHigherPriorityTaskWoken);
+    auto* self = static_cast<SolarSensor*>(arg);
+    if (self && self->ina_sample_queue_) {
+        // High-priority ISR wake logic if needed
     }
-
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 WakeType SolarSensor::evaluate_boot_mode()
 {
-    esp_sleep_source_t cause = hal_sleep_.get_wakeup_cause();
-    bool is_gpio_wakeup = (cause == ESP_SLEEP_WAKEUP_GPIO || cause == ESP_SLEEP_WAKEUP_EXT0);
+    esp_sleep_wakeup_cause_t cause = hal_sleep_.get_wakeup_cause();
+    bool is_gpio_wakeup = (cause == ESP_SLEEP_WAKEUP_GPIO);
 
     // Power-on reset / cold boot starts in Day mode
     if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
@@ -865,8 +826,8 @@ void SolarSensor::on_dawn_start()
     ESP_LOGI(TAG, "Dawn transition: resetting daily stats and enabling telemetry reporting");
 
     stats_.max_day_current_ma = 0;
-    yield_umah_accumulator_ = 0;
     stats_.daily_yield_mah = 0;
+    yield_umah_accumulator_ = 0;
     stats_.is_night_mode = false;
     core_.power_profile = farm::PowerProfile::ALWAYS_ON;
 
@@ -879,7 +840,7 @@ void SolarSensor::on_dawn_start()
     pending_core_commit_ = true;
 }
 
-bool SolarSensor::process_night_calibration()
+void SolarSensor::process_night_calibration()
 {
     ESP_LOGI(TAG, "Starting 03:00 AM UTC night calibration...");
 
@@ -932,41 +893,23 @@ bool SolarSensor::process_night_calibration()
 
     hal_rtos_.task_delay(pdMS_TO_TICKS(100));
 
-    CommandProcessResult cmd_res = command_handler_.process();
-    if (cmd_res.core_modified) {
-        pending_core_commit_ = true;
-    }
-    if (cmd_res.reboot_requested) {
-        pending_core_commit_ = true;
-        pending_solar_commit_ = true;
-        save_persistent_state();
-        hal_system_.restart();
-        return false;
-    }
-    if (cmd_res.ota_requested) {
-        process_pending_ota();
-        return false;
-    }
-
-    pending_core_commit_ = true;
-    pending_solar_commit_ = true;
-    save_persistent_state();
+    handle_command_process_result(command_handler_.process());
 
     enter_deep_sleep();
-    return false;
 }
 
-bool SolarSensor::process_spurious_wake()
+void SolarSensor::process_spurious_wake()
 {
     // TODO: Implement lightning flash detection and event logging when night wake is triggered by brief nocturnal light
     // pulses (e.g. lightning).
     ESP_LOGI(TAG, "Spurious night wakeup detected. Re-entering deep sleep...");
     enter_deep_sleep();
-    return false;
 }
 
 esp_err_t SolarSensor::send_night_transition_report(bool requires_ack)
 {
+    led_.pulse(30);
+
     TelemetrySnapshotData snap = telemetry_snapshot_.get();
 
     farm::SolarSensorReport report{};
@@ -1002,4 +945,61 @@ esp_err_t SolarSensor::send_night_transition_report(bool requires_ack)
         &report,
         sizeof(report),
         requires_ack);
+}
+
+void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_res)
+{
+    if (cmd_res.core_modified) {
+        pending_core_commit_ = true;
+    }
+
+    if (stats_.is_night_mode) {
+        pending_core_commit_ = true;
+        pending_solar_commit_ = true;
+        save_persistent_state();
+    }
+
+    if (cmd_res.ota_requested) {
+        process_pending_ota();
+        return;
+    }
+
+    if (cmd_res.reboot_requested) {
+        ESP_LOGW(TAG, "Reboot requested via command! Saving state and disconnecting WiFi...");
+        pending_core_commit_ = true;
+        pending_solar_commit_ = true;
+        save_persistent_state();
+        wifi_.disconnect(2000);
+        espnow_.deinit();
+        hal_system_.restart();
+        return;
+    }
+}
+
+void SolarSensor::check_espnow_connection()
+{
+    espnow::NodeState state = espnow_.get_node_state();
+    if (state == espnow::NodeState::IDLE) {
+        int64_t now_ms = hal_timer_.get_time_us() / 1000;
+        if (last_idle_reconnect_ts_ms_ == 0 || (now_ms - last_idle_reconnect_ts_ms_) >= IDLE_RECONNECT_INTERVAL_MS) {
+            last_idle_reconnect_ts_ms_ = now_ms;
+            auto peers = espnow_.get_peers();
+            if (!peers.empty()) {
+                ESP_LOGW(TAG, "EspNow in IDLE with known Hub. Triggering reconnect scan...");
+                led_.set_pattern(BlinkPattern::IDLE_BEACON);
+                espnow_.reconnect();
+            }
+            else {
+                ESP_LOGW(TAG, "EspNow in IDLE without peers (unpaired node). Starting pairing mode...");
+                led_.set_pattern(BlinkPattern::PAIRING_MODE);
+                espnow_.start_pairing(30000);
+            }
+        }
+    }
+    else if (state == espnow::NodeState::OPERATIONAL) {
+        BlinkPattern pat = led_.get_current_pattern();
+        if (pat == BlinkPattern::IDLE_BEACON || pat == BlinkPattern::PAIRING_MODE) {
+            led_.set_pattern(BlinkPattern::OFF);
+        }
+    }
 }

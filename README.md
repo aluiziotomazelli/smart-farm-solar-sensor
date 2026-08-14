@@ -30,15 +30,19 @@ $$\text{Estimated STC Array Capacity } (W) = \frac{I_{sc\_ma} \times 2640\text{ 
 
 ## 2. Hardware Pinout (Seeed XIAO ESP32-C3)
 
-| Pin    | GPIO      | Function             | Description                                            |
+| Pin    | GPIO      | Constant             | Description                                            |
 | :----- | :-------- | :------------------- | :----------------------------------------------------- |
-| **D1** | `GPIO 2`  | `BATTERY_LEVEL_GPIO` | ADC battery divider input (240k / 240k)                |
+| **D0** | `GPIO 2`  | `BATTERY_LEVEL_GPIO` | ADC battery divider input (240k / 240k, ADC1_CH2)      |
+| **D1** | `GPIO 3`  | `INA_ALERT_GPIO`     | Conversion-ready alert & deep sleep dawn wake trigger  |
+| **D2** | `GPIO 4`  | `STATUS_LED_GPIO`    | Status LED visual indicator (diagnostic / state)       |
 | **D3** | `GPIO 5`  | `INA_VCC_GPIO`       | Power gate control for INA226 power line               |
-| **D2** | `GPIO 3`  | `INA_ALERT_GPIO`     | Conversion-ready alert & deep sleep dawn wake trigger  |
 | **D4** | `GPIO 6`  | `I2C_SDA_GPIO`       | I2C Data line for INA226                               |
 | **D5** | `GPIO 7`  | `I2C_SCL_GPIO`       | I2C Clock line for INA226                              |
-| **D7** | `GPIO 20` | `DS18B20_GPIO`       | 1-Wire data bus for DS18B20 digital temperature sensor |
+| **D6** | `GPIO 21` | *(Free)*             | UART0 TX (Debug serial console)                        |
+| **D7** | `GPIO 20` | *(Free)*             | UART0 RX (Debug serial console)                        |
+| **D8** | `GPIO 8`  | `DS18B20_GPIO`       | 1-Wire data bus for DS18B20 digital temperature sensor |
 | **D9** | `GPIO 9`  | `BOOT_BUTTON_GPIO`   | Boot button / manual OTA mode trigger                  |
+| **D10**| `GPIO 10` | *(Free)*             | General purpose I/O                                    |
 
 ---
 

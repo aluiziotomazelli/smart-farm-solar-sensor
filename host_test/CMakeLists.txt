@@ -21,6 +21,7 @@ add_test(NAME test_day_night_controller COMMAND ../test_day_night_controller/bui
 add_test(NAME test_ota_controller COMMAND ../test_ota_controller/build/test_ota_controller.elf)
 add_test(NAME test_solar_sensor_nvs COMMAND ../test_solar_sensor_nvs/build/test_solar_sensor_nvs.elf)
 add_test(NAME test_ina_sensor_task COMMAND ../test_ina_sensor_task/build/test_ina_sensor_task.elf)
+add_test(NAME test_led_controller COMMAND ../test_led_controller/build/test_led_controller.elf)
 
 # Unified Coverage Configuration
 find_program(LCOV_PATH lcov REQUIRED)
@@ -57,6 +58,7 @@ add_custom_target(build_all_tests
     COMMAND idf.py -C ../test_ota_controller build
     COMMAND idf.py -C ../test_solar_sensor_nvs build
     COMMAND idf.py -C ../test_ina_sensor_task build
+    COMMAND idf.py -C ../test_led_controller build
     COMMENT "Building all test projects using idf.py"
 )
 

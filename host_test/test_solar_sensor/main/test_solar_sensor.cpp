@@ -18,6 +18,7 @@
 #include "mock_hal_gpio.hpp"
 #include "mock_hal_i2c.hpp"
 #include "mock_ota_manager.hpp"
+#include "mock_led_controller.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -88,6 +89,7 @@ protected:
     NiceMock<idf_hals::MockHalFreertos> hal_rtos_;
     NiceMock<idf_hals::MockGpioHAL> hal_gpio_;
     NiceMock<idf_hals::MockI2cHAL> hal_i2c_;
+    NiceMock<MockLedController> led_;
 
     std::unique_ptr<SolarSensor> sut_;
 
@@ -115,6 +117,8 @@ protected:
         ON_CALL(espnow_, init(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(hal_gpio_, config(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(hal_gpio_, isr_handler_add(_, _, _)).WillByDefault(Return(ESP_OK));
+        ON_CALL(led_, init()).WillByDefault(Return(ESP_OK));
+        ON_CALL(led_, start()).WillByDefault(Return(ESP_OK));
 
         sut_ = std::make_unique<SolarSensor>(
             mock_ina_task_,
@@ -135,7 +139,8 @@ protected:
             time_manager_,
             hal_rtos_,
             hal_gpio_,
-            hal_i2c_);
+            hal_i2c_,
+            led_);
     }
 };
 
@@ -266,4 +271,64 @@ TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesM
     // Sorted valid samples (ignoring >100uV spikes 500uV and 1500uV): [-10, -4, -2, 0, 2, 5, 8]
     // Median of 7 valid samples (index 7/2 = 3) is 0 uV!
     EXPECT_EQ(sut_->get_solar_stats().shunt_zero_offset_uv, 0);
+}
+
+TEST_F(SolarSensorTest, CheckEspNowConnectionTriggersReconnectWhenIdleWithPeers)
+{
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::IDLE));
+
+    etl::vector<espnow::PeerInfo, espnow::MAX_PEERS> peers;
+    espnow::PeerInfo peer{};
+    peer.node_id = espnow::ReservedIds::HUB;
+    peers.push_back(peer);
+    EXPECT_CALL(espnow_, get_peers()).WillOnce(Return(peers));
+    EXPECT_CALL(espnow_, reconnect()).WillOnce(Return(ESP_OK));
+
+    EXPECT_TRUE(sut_->run());
+}
+
+TEST_F(SolarSensorTest, CheckEspNowConnectionTriggersPairingWhenIdleWithoutPeers)
+{
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::IDLE));
+
+    etl::vector<espnow::PeerInfo, espnow::MAX_PEERS> peers; // Empty
+    EXPECT_CALL(espnow_, get_peers()).WillOnce(Return(peers));
+    EXPECT_CALL(espnow_, start_pairing(30000)).WillOnce(Return(ESP_OK));
+
+    EXPECT_TRUE(sut_->run());
+}
+
+TEST_F(SolarSensorTest, CheckEspNowConnectionDoesNothingWhenOperational)
+{
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::OPERATIONAL));
+    EXPECT_CALL(espnow_, reconnect()).Times(0);
+    EXPECT_CALL(espnow_, start_pairing(_)).Times(0);
+
+    EXPECT_TRUE(sut_->run());
+}
+
+TEST_F(SolarSensorTest, InitSuccessSetsBootSuccessLedPattern)
+{
+    EXPECT_CALL(led_, init()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(led_, start()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(led_, set_pattern(BlinkPattern::BOOT_SUCCESS)).Times(1);
+
+    EXPECT_EQ(sut_->init(), ESP_OK);
+}
+
+TEST_F(SolarSensorTest, InitFailureSetsErrorBurstLedPattern)
+{
+    EXPECT_CALL(wifi_, init(_)).WillOnce(Return(ESP_FAIL));
+    EXPECT_CALL(led_, set_pattern(BlinkPattern::ERROR_BURST)).Times(1);
+
+    EXPECT_EQ(sut_->init(), ESP_FAIL);
 }

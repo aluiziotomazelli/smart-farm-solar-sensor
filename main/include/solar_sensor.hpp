@@ -14,6 +14,7 @@
 #include "interfaces/i_hal_freertos.hpp"
 #include "interfaces/i_hal_gpio.hpp"
 #include "interfaces/i_hal_i2c.hpp"
+#include "interfaces/i_led_controller.hpp"
 
 #include "interfaces/i_ina_sensor_task.hpp"
 #include "interfaces/i_slow_sensors_task.hpp"
@@ -50,7 +51,8 @@ public:
         time_manager::ITimeManager& time_manager,
         idf_hals::IHalFreertos& hal_freertos,
         idf_hals::IGpioHAL& hal_gpio,
-        idf_hals::II2cHAL& hal_i2c);
+        idf_hals::II2cHAL& hal_i2c,
+        ILedController& led);
 
     virtual ~SolarSensor() = default;
 
@@ -97,12 +99,14 @@ private:
     idf_hals::IHalFreertos& hal_rtos_;
     idf_hals::IGpioHAL& hal_gpio_;
     idf_hals::II2cHAL& hal_i2c_;
+    ILedController& led_;
     CommandHandler command_handler_;
     DayNightController day_night_controller_;
 
     std::atomic<bool> ota_triggered_{false};
     bool wake_classified_ = false;
     int64_t last_nvs_commit_ts_ = 0;
+    int64_t last_idle_reconnect_ts_ms_ = 0;
     uint8_t consecutive_ina_errors_ = 0;
     uint64_t yield_umah_accumulator_ = 0;
     i2c_master_bus_handle_t i2c_bus_handle_;
@@ -125,11 +129,13 @@ private:
     esp_err_t recover_ina_hardware();
     WakeType evaluate_boot_mode();
     void on_dawn_start();
-    bool process_night_calibration();
-    bool process_spurious_wake();
+    void process_night_calibration();
+    void process_spurious_wake();
     bool run_day_cycle();
     void enter_deep_sleep();
     esp_err_t send_night_transition_report(bool requires_ack);
+    void handle_command_process_result(const CommandProcessResult& cmd_res);
+    void check_espnow_connection();
 
     esp_err_t init_ina_alert_pin();
     static void IRAM_ATTR ina_alert_isr_handler(void* arg);

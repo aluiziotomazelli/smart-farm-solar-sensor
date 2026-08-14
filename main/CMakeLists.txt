@@ -17,6 +17,7 @@ idf_component_register(
         "src/day_night_controller.cpp"
         "src/ota_controller.cpp"
         "src/slow_sensors_task.cpp"
+        "src/led_controller.cpp"
     INCLUDE_DIRS
         "include"
         "include/interfaces"

@@ -38,6 +38,7 @@
 #include "hal_onewire_bus.hpp"
 #include "slow_sensors_task.hpp"
 #include "telemetry_snapshot.hpp"
+#include "led_controller.hpp"
 
 #include "secrets.hpp"
 
@@ -148,6 +149,15 @@ static OtaController ota_controller(ota_manager, hal_freertos);
 static ButtonOtaTrigger btn_trigger(hal_gpio, hal_freertos, BOOT_BUTTON_GPIO, 200);
 static EspNowOtaTrigger espnow_ota_trigger;
 
+// Status LED Controller
+static LedConfig led_config{
+    .gpio_num = STATUS_LED_GPIO,
+    .task_stack_size = 2048,
+    .task_priority = 1,
+    .active_level = 1,
+};
+static LedController led_controller{hal_gpio, hal_freertos, led_config};
+
 static time_manager::TimeManager time_mgr{hal_sntp, hal_sys_time};
 
 extern "C" void app_main()
@@ -186,7 +196,8 @@ extern "C" void app_main()
         time_mgr,
         hal_freertos,
         hal_gpio,
-        hal_i2c);
+        hal_i2c,
+        led_controller);
 
     // Initialize application state
     solar.init();

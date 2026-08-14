@@ -7,13 +7,14 @@
 #include "farm_protocol_types.hpp"
 
 // Production Configuration for XIAO-ESP32-C3 Mini Board
-static constexpr gpio_num_t BATTERY_LEVEL_GPIO = GPIO_NUM_2; // D1
-static constexpr gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_9;   // D9 - Boot button
+static constexpr gpio_num_t BATTERY_LEVEL_GPIO = GPIO_NUM_2; // D0 - Battery ADC (ADC1_CH2)
+static constexpr gpio_num_t INA_ALERT_GPIO = GPIO_NUM_3;     // D1 - INA ALERT (RTC GPIO3, Deep Sleep Wakeup)
+static constexpr gpio_num_t STATUS_LED_GPIO = GPIO_NUM_4;    // D2 - Status LED indicator
 static constexpr gpio_num_t INA_VCC_GPIO = GPIO_NUM_5;       // D3 - INA VCC Power Control
-static constexpr gpio_num_t INA_ALERT_GPIO = GPIO_NUM_3;     // INA ALERT (C3: only GPIO0-5 wake from deep sleep)
-static constexpr gpio_num_t I2C_SDA_GPIO = GPIO_NUM_6;       // D4
-static constexpr gpio_num_t I2C_SCL_GPIO = GPIO_NUM_7;       // D5
-static constexpr gpio_num_t DS18B20_GPIO = GPIO_NUM_20;      // D7 - DS18B20 DQ (1-Wire)
+static constexpr gpio_num_t I2C_SDA_GPIO = GPIO_NUM_6;       // D4 - I2C SDA (INA226)
+static constexpr gpio_num_t I2C_SCL_GPIO = GPIO_NUM_7;       // D5 - I2C SCL (INA226)
+static constexpr gpio_num_t DS18B20_GPIO = GPIO_NUM_8;       // D8 - DS18B20 1-Wire (Pull-up matches strapping HIGH)
+static constexpr gpio_num_t BOOT_BUTTON_GPIO = GPIO_NUM_9;   // D9 - Boot button / Download Mode
 
 // DayNightController Constants
 static constexpr uint32_t DEFAULT_FALLBACK_NIGHT_SLEEP_SEC =
