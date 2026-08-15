@@ -28,9 +28,17 @@ esp_err_t LedController::init()
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t err = hal_gpio_.set_direction(config_.gpio_num, GPIO_MODE_OUTPUT);
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << config_.gpio_num),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+
+    esp_err_t err = hal_gpio_.config(&io_conf);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set GPIO %d direction: %s", config_.gpio_num, esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to configure GPIO %d for status LED: %s", config_.gpio_num, esp_err_to_name(err));
         return err;
     }
 

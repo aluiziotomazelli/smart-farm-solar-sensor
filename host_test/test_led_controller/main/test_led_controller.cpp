@@ -34,7 +34,7 @@ protected:
 
 TEST_F(LedControllerTest, InitSuccessConfiguresGpioAndSetsLevelLow)
 {
-    EXPECT_CALL(hal_gpio_, set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_gpio_, config(_)).WillOnce(Return(ESP_OK));
     EXPECT_CALL(hal_gpio_, set_level(GPIO_NUM_4, 0)).WillOnce(Return(ESP_OK));
 
     EXPECT_EQ(sut_->init(), ESP_OK);
@@ -48,9 +48,9 @@ TEST_F(LedControllerTest, InitFailsWithInvalidGpioNum)
     EXPECT_EQ(invalid_sut.init(), ESP_ERR_INVALID_ARG);
 }
 
-TEST_F(LedControllerTest, InitFailsWhenGpioSetDirectionFails)
+TEST_F(LedControllerTest, InitFailsWhenGpioConfigFails)
 {
-    EXPECT_CALL(hal_gpio_, set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT)).WillOnce(Return(ESP_FAIL));
+    EXPECT_CALL(hal_gpio_, config(_)).WillOnce(Return(ESP_FAIL));
 
     EXPECT_EQ(sut_->init(), ESP_FAIL);
 }
