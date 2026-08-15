@@ -421,7 +421,7 @@ void SolarSensor::process_pending_ota()
     }
 
     if (wifi_ok) {
-        OtaDownloadResult dl = ota_controller_.execute_download();
+        OtaVerifyResult dl = ota_controller_.execute_download();
         if (dl.success) {
             ESP_LOGI(TAG, "OTA download succeeded! Saving state and restarting...");
             pending_core_commit_ = true;
@@ -435,7 +435,12 @@ void SolarSensor::process_pending_ota()
         else {
             ESP_LOGE(TAG, "OTA download failed (error_code: %d)", static_cast<int>(dl.error_code));
             led_.set_pattern(BlinkPattern::ERROR_BURST);
-            send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, dl.error_code);
+            if (dl.version.has_value()) {
+                core_.fw_major = dl.version->major;
+                core_.fw_minor = dl.version->minor;
+                core_.fw_patch = dl.version->patch;
+            }
+            send_ota_report(dl.exec_result, dl.error_code);
         }
     }
     else {

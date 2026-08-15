@@ -71,8 +71,9 @@ TEST_F(OtaControllerTest, ExecuteDownloadStartOtaFail)
 {
     EXPECT_CALL(mock_ota_manager_, start_ota()).WillOnce(Return(false));
 
-    OtaDownloadResult result = sut_->execute_download();
+    OtaVerifyResult result = sut_->execute_download();
     EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.exec_result, farm::OtaExecResult::DOWNLOAD_FAILED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::DOWNLOAD_SESSION_FAIL);
 }
 
@@ -81,8 +82,9 @@ TEST_F(OtaControllerTest, ExecuteDownloadSuccess)
     EXPECT_CALL(mock_ota_manager_, start_ota()).WillOnce(Return(true));
     EXPECT_CALL(mock_ota_manager_, get_status()).WillOnce(Return(OtaStatus::READY_TO_RESTART));
 
-    OtaDownloadResult result = sut_->execute_download();
+    OtaVerifyResult result = sut_->execute_download();
     EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.exec_result, farm::OtaExecResult::CONFIRMED_SUCCESS);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::NONE);
 }
 
@@ -93,8 +95,9 @@ TEST_F(OtaControllerTest, ExecuteDownloadFailedStatus)
     EXPECT_CALL(mock_ota_manager_, get_last_error()).WillOnce(Return(OtaFailReason::HASH_MISMATCH));
     EXPECT_CALL(mock_ota_manager_, cancel_ota()).Times(1);
 
-    OtaDownloadResult result = sut_->execute_download();
+    OtaVerifyResult result = sut_->execute_download();
     EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.exec_result, farm::OtaExecResult::DOWNLOAD_FAILED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::IMAGE_HASH_MISMATCH);
 }
 
@@ -104,7 +107,8 @@ TEST_F(OtaControllerTest, ExecuteDownloadTimeout)
     EXPECT_CALL(mock_ota_manager_, get_status()).WillRepeatedly(Return(OtaStatus::DOWNLOADING));
     EXPECT_CALL(mock_ota_manager_, cancel_ota()).Times(1);
 
-    OtaDownloadResult result = sut_->execute_download(1000); // 1s timeout
+    OtaVerifyResult result = sut_->execute_download(1000); // 1s timeout
     EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.exec_result, farm::OtaExecResult::DOWNLOAD_FAILED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::WATCHDOG_TIMEOUT);
 }

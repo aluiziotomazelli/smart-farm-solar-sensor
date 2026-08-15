@@ -20,16 +20,6 @@ struct OtaVerifyResult
 };
 
 /**
- * @struct OtaDownloadResult
- * @brief Result of executing an active OTA download.
- */
-struct OtaDownloadResult
-{
-    bool success{false};
-    farm::OtaErrorCode error_code{farm::OtaErrorCode::NONE};
-};
-
-/**
  * @class OtaController
  * @brief Manages low-level OTA download worker execution and post-boot firmware verification.
  */
@@ -53,9 +43,9 @@ public:
     /**
      * @brief Executes active OTA download polling until completed or failed.
      * @param timeout_ms Maximum time to wait for download to finish.
-     * @return OtaDownloadResult struct.
+     * @return OtaVerifyResult struct.
      */
-    OtaDownloadResult execute_download(uint32_t timeout_ms = 60000);
+    OtaVerifyResult execute_download(uint32_t timeout_ms = 60000);
 
     /**
      * @brief Triggers rollback to previous firmware partition and reboots.

@@ -52,13 +52,15 @@ void OtaController::rollback_and_reboot()
     ota_manager_.rollback_and_reboot();
 }
 
-OtaDownloadResult OtaController::execute_download(uint32_t timeout_ms)
+OtaVerifyResult OtaController::execute_download(uint32_t timeout_ms)
 {
-    OtaDownloadResult result{};
+    OtaVerifyResult result{};
+    result.version = ota_manager_.get_running_version();
 
     if (!ota_manager_.start_ota()) {
         ESP_LOGE(TAG, "Failed to start OTA download session");
         result.success = false;
+        result.exec_result = farm::OtaExecResult::DOWNLOAD_FAILED;
         result.error_code = farm::OtaErrorCode::DOWNLOAD_SESSION_FAIL;
         return result;
     }
@@ -75,10 +77,12 @@ OtaDownloadResult OtaController::execute_download(uint32_t timeout_ms)
     if (status == OtaStatus::READY_TO_RESTART) {
         ESP_LOGI(TAG, "OTA download completed successfully. Ready to restart.");
         result.success = true;
+        result.exec_result = farm::OtaExecResult::CONFIRMED_SUCCESS;
         result.error_code = farm::OtaErrorCode::NONE;
     }
     else {
         result.success = false;
+        result.exec_result = farm::OtaExecResult::DOWNLOAD_FAILED;
         if (status == OtaStatus::FAILED) {
             OtaFailReason reason = ota_manager_.get_last_error();
             result.error_code = map_fail_reason(reason);
