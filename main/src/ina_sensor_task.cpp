@@ -143,10 +143,14 @@ esp_err_t InaSensorTask::prepare_for_sleep()
     }
 
     // Arm the dawn wakeup alert: SHUNT_OVER_VOLTAGE asserts the ALERT pin when
-    // the panel current rises above DEFAULT_DAWN_WAKEUP_ALERT_LIMIT, waking the
+    // the panel current rises above config_.dawn_alert_current_ma, waking the
     // MCU from deep sleep via the GPIO.
+    // INA226 Shunt Voltage LSB is 2.5 uV per LSB.
+    float v_shunt_uv = static_cast<float>(config_.dawn_alert_current_ma) * uv_per_ma_;
+    uint16_t alert_limit = static_cast<uint16_t>(v_shunt_uv / 2.5f);
+
     err = driver_.configure_alert(
-        static_cast<uint16_t>(ina226::AlertFlag::SHUNT_OVER_VOLTAGE), DEFAULT_DAWN_WAKEUP_ALERT_LIMIT);
+        static_cast<uint16_t>(ina226::AlertFlag::SHUNT_OVER_VOLTAGE), alert_limit);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure dawn wakeup alert: %s", esp_err_to_name(err));
         return err;
@@ -158,11 +162,12 @@ esp_err_t InaSensorTask::prepare_for_sleep()
 
     ESP_LOGI(
         TAG,
-        "InaSensorTask prepared for sleep (avg=%u, vbus=%luus, vsh=%luus, alert=SHUNT_OVER_VOLTAGE, limit=%u)",
+        "InaSensorTask prepared for sleep (avg=%u, vbus=%luus, vsh=%luus, alert=SHUNT_OVER_VOLTAGE, limit=%u raw / %u mA)",
         static_cast<unsigned>(ina226::averaging_mode_to_count(config_.night_config.avg_mode)),
         static_cast<unsigned long>(ina226::conversion_time_to_us(config_.night_config.vbus_ct)),
         static_cast<unsigned long>(ina226::conversion_time_to_us(config_.night_config.vsh_ct)),
-        DEFAULT_DAWN_WAKEUP_ALERT_LIMIT);
+        alert_limit,
+        config_.dawn_alert_current_ma);
     return ESP_OK;
 }
 

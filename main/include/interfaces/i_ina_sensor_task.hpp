@@ -133,7 +133,7 @@ public:
      * 1. Disables sampling and reporting
      * 2. Applies night conversion settings (slower conversions, higher averaging)
      *    from InaSensorConfig::night_config to reduce INA226 power consumption
-     * 3. Arms the SHUNT_OVER_VOLTAGE alert with DEFAULT_DAWN_WAKEUP_ALERT_LIMIT
+     * 3. Arms the SHUNT_OVER_VOLTAGE alert with InaSensorConfig::dawn_alert_current_ma
      *    so the ALERT pin wakes the MCU when panel current rises at dawn
      *
      * Call this immediately before entering deep sleep. After wakeup,

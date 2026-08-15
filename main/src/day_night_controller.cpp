@@ -43,12 +43,25 @@ SolarDayInfo DayNightController::calculate_solar_day(uint16_t day_of_year) const
     return info;
 }
 
+DayNightController::LocalTime DayNightController::decompose(time_t unix_time) const
+{
+    // Apply timezone offset configured in config_
+    int64_t offset_sec = static_cast<int64_t>(config_.tz_offset_hours * 3600.0f);
+    time_t local_unix = unix_time + offset_sec;
+
+    struct tm tm_info{};
+    gmtime_r(&local_unix, &tm_info);
+
+    return {
+        static_cast<uint8_t>(tm_info.tm_hour),
+        static_cast<uint8_t>(tm_info.tm_min),
+        static_cast<uint16_t>(tm_info.tm_yday + 1)
+    };
+}
+
 bool DayNightController::should_enter_night_mode(
     uint16_t current_ma,
-    bool is_time_synced,
-    uint8_t current_hour_local,
-    uint8_t current_minute_local,
-    uint16_t day_of_year)
+    std::optional<time_t> unix_time)
 {
     if (current_ma >= config_.dusk_current_threshold_ma) {
         consecutive_dusk_samples_ = 0;
@@ -57,9 +70,10 @@ bool DayNightController::should_enter_night_mode(
 
     uint16_t required_samples = config_.hysteresis_sample_count;
 
-    if (is_time_synced) {
-        SolarDayInfo day_info = calculate_solar_day(day_of_year);
-        float current_time_float = static_cast<float>(current_hour_local) + (static_cast<float>(current_minute_local) / 60.0f);
+    if (unix_time.has_value()) {
+        LocalTime lt = decompose(*unix_time);
+        SolarDayInfo day_info = calculate_solar_day(lt.day_of_year);
+        float current_time_float = static_cast<float>(lt.hour) + (static_cast<float>(lt.minute) / 60.0f);
         float dusk_start = day_info.sunset_hour_local - (static_cast<float>(config_.dusk_margin_before_sunset_min) / 60.0f);
         float sunrise = day_info.sunrise_hour_local;
 
@@ -80,10 +94,35 @@ bool DayNightController::should_enter_night_mode(
 WakeType DayNightController::classify_wake(
     bool is_gpio_wakeup,
     uint16_t current_ma,
-    bool is_time_synced,
-    uint8_t current_hour_local) const
+    std::optional<time_t> unix_time) const
 {
-    if (is_gpio_wakeup) {
+    if (unix_time.has_value()) {
+        LocalTime lt = decompose(*unix_time);
+        SolarDayInfo day_info = calculate_solar_day(lt.day_of_year);
+        float current_time = static_cast<float>(lt.hour) + (static_cast<float>(lt.minute) / 60.0f);
+
+        // Dawn window: from 30 min before calculated sunrise until noon (12:00)
+        float dawn_window_start = day_info.sunrise_hour_local - 0.5f;
+        bool in_dawn_window = (current_time >= dawn_window_start && current_time < 12.0f);
+
+        if (is_gpio_wakeup) {
+            // GPIO outside the dawn window (e.g. at dusk or midnight) is noise -> spurious wake
+            return in_dawn_window ? WakeType::DAWN_GPIO : WakeType::SPURIOUS_TIMER;
+        }
+
+        if (in_dawn_window && current_ma >= config_.dawn_current_threshold_ma) {
+            return WakeType::DAWN_TIMER;
+        }
+
+        if (lt.hour == config_.calibration_wake_hour) {
+            return WakeType::CALIBRATION_TIMER;
+        }
+
+        return WakeType::SPURIOUS_TIMER;
+    }
+
+    // No time sync: fall back to threshold heuristic
+    if (is_gpio_wakeup && current_ma >= config_.dawn_current_threshold_ma) {
         return WakeType::DAWN_GPIO;
     }
 
@@ -91,27 +130,21 @@ WakeType DayNightController::classify_wake(
         return WakeType::DAWN_TIMER;
     }
 
-    if (is_time_synced && current_hour_local == config_.calibration_wake_hour) {
-        return WakeType::CALIBRATION_TIMER;
-    }
-
     return WakeType::SPURIOUS_TIMER;
 }
 
 uint64_t DayNightController::calculate_night_sleep_time_us(
-    bool is_time_synced,
-    uint8_t current_hour_local,
-    uint8_t current_minute_local,
-    uint16_t day_of_year) const
+    std::optional<time_t> unix_time) const
 {
-    if (!is_time_synced) {
+    if (!unix_time.has_value()) {
         return static_cast<uint64_t>(config_.fallback_sleep_sec) * 1000000ULL;
     }
 
-    uint32_t current_sec = (static_cast<uint32_t>(current_hour_local) * 3600U) + (static_cast<uint32_t>(current_minute_local) * 60U);
+    LocalTime lt = decompose(*unix_time);
+    uint32_t current_sec = (static_cast<uint32_t>(lt.hour) * 3600U) + (static_cast<uint32_t>(lt.minute) * 60U);
     uint32_t calib_sec = static_cast<uint32_t>(config_.calibration_wake_hour) * 3600U;
 
-    SolarDayInfo day_info = calculate_solar_day(day_of_year);
+    SolarDayInfo day_info = calculate_solar_day(lt.day_of_year);
     uint32_t sunrise_sec = static_cast<uint32_t>(day_info.sunrise_hour_local * 3600.0f);
 
     uint32_t target_sleep_sec = config_.fallback_sleep_sec;

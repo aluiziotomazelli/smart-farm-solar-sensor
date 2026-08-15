@@ -254,8 +254,9 @@ TEST_F(InaSensorTaskTest, PrepareForSleepAppliesNightConfigAndArmsDawnAlert)
             captured = cfg;
             return ESP_OK;
         });
+    uint16_t expected_limit = static_cast<uint16_t>((5.0f * 100.0f) / 2.5f);
     EXPECT_CALL(mock_driver_, configure_alert(
-        static_cast<uint16_t>(AlertFlag::SHUNT_OVER_VOLTAGE), DEFAULT_DAWN_WAKEUP_ALERT_LIMIT))
+        static_cast<uint16_t>(AlertFlag::SHUNT_OVER_VOLTAGE), expected_limit))
         .WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_driver_, read_alert_flags(_)).WillOnce(Return(ESP_OK));
 
