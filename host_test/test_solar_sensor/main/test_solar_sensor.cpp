@@ -183,6 +183,7 @@ TEST_F(SolarSensorTest, RunProcessesInaSamplesAndEntersNightSleepOnDusk)
 {
     DayNightConfig cfg{};
     cfg.hysteresis_sample_count = 1;
+    cfg.unsynced_hysteresis_sample_count = 1;
     sut_->get_day_night_controller().set_config(cfg);
 
     InaSample sample{};

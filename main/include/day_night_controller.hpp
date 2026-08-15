@@ -39,11 +39,11 @@ struct DayNightConfig
     uint16_t dawn_current_threshold_ma = DEFAULT_DAWN_CURRENT_THRESHOLD_MA;
     uint8_t calibration_wake_hour = DEFAULT_CALIBRATION_HOUR_UTC;
     uint32_t fallback_sleep_sec = DEFAULT_FALLBACK_NIGHT_SLEEP_SEC;
-    uint8_t hysteresis_sample_count = DEFAULT_HYSTERESIS_SAMPLE_COUNT;
+    uint16_t hysteresis_sample_count = DEFAULT_HYSTERESIS_SAMPLE_COUNT;
+    uint16_t unsynced_hysteresis_sample_count = DEFAULT_UNSYNCED_HYSTERESIS_SAMPLE_COUNT;
     float latitude_deg = DEFAULT_LATITUDE_DEG;
     float tz_offset_hours = DEFAULT_TIMEZONE_OFFSET_HOURS;
     uint8_t dusk_margin_before_sunset_min = DEFAULT_DUSK_MARGIN_BEFORE_SUNSET_MIN;
-    uint8_t dusk_margin_after_sunset_min = DEFAULT_DUSK_MARGIN_AFTER_SUNSET_MIN;
 };
 
 /**
@@ -116,5 +116,5 @@ public:
 
 private:
     DayNightConfig config_;
-    uint8_t consecutive_dusk_samples_ = 0;
+    uint16_t consecutive_dusk_samples_ = 0;
 };

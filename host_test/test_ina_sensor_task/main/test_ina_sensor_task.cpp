@@ -14,6 +14,7 @@ using ::testing::DoAll;
 using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::ReturnRef;
+using ::testing::SetArgPointee;
 using ::testing::SetArgReferee;
 
 using namespace ina;
@@ -47,6 +48,9 @@ protected:
     void SetUp() override
     {
         ON_CALL(mock_driver_, get_config()).WillByDefault(ReturnRef(base_config_));
+        ON_CALL(mock_rtos_, semaphore_create_binary()).WillByDefault(Return(reinterpret_cast<SemaphoreHandle_t>(0x5678)));
+        ON_CALL(mock_rtos_, task_create(_, _, _, _, _, _))
+            .WillByDefault(DoAll(SetArgPointee<5>(reinterpret_cast<TaskHandle_t>(0x9ABC)), Return(pdPASS)));
         sut_ = std::make_unique<InaSensorTask>(
             mock_driver_,
             mock_espnow_,
@@ -197,11 +201,13 @@ TEST_F(InaSensorTaskTest, ProcessCycleReportingDisabledSuppressesEspNow)
     sut_->process_cycle();
 }
 
-TEST_F(InaSensorTaskTest, ProcessCycleSamplingDisabledDoesNothing)
+TEST_F(InaSensorTaskTest, ProcessCycleSamplingDisabledAcknowledgesAlertWithoutProcessing)
 {
     sut_->set_sampling_enabled(false);
 
+    EXPECT_CALL(mock_driver_, read_alert_flags(_)).WillOnce(Return(ESP_OK));
     EXPECT_CALL(mock_driver_, read_shunt_voltage_uv(_)).Times(0);
+    EXPECT_CALL(mock_espnow_, send_data(_, _, _, _, _)).Times(0);
     EXPECT_CALL(mock_rtos_, queue_send(_, _, _)).Times(0);
 
     sut_->process_cycle();
@@ -251,6 +257,7 @@ TEST_F(InaSensorTaskTest, PrepareForSleepAppliesNightConfigAndArmsDawnAlert)
     EXPECT_CALL(mock_driver_, configure_alert(
         static_cast<uint16_t>(AlertFlag::SHUNT_OVER_VOLTAGE), DEFAULT_DAWN_WAKEUP_ALERT_LIMIT))
         .WillOnce(Return(ESP_OK));
+    EXPECT_CALL(mock_driver_, read_alert_flags(_)).WillOnce(Return(ESP_OK));
 
     EXPECT_EQ(sut_->prepare_for_sleep(), ESP_OK);
     EXPECT_FALSE(sut_->is_sampling_enabled());
@@ -312,3 +319,28 @@ TEST_F(InaSensorTaskTest, ProcessCycleBypassesEmaWhenDisabled)
 
     EXPECT_EQ(captured_sample.isc_current_ma, 500u);
 }
+
+TEST_F(InaSensorTaskTest, StartAndStopToggleFlags)
+{
+    init_sut();
+
+    sut_->stop();
+    EXPECT_FALSE(sut_->is_sampling_enabled());
+    EXPECT_FALSE(sut_->is_reporting_enabled());
+
+    EXPECT_EQ(sut_->start(), ESP_OK);
+    EXPECT_TRUE(sut_->is_sampling_enabled());
+    EXPECT_TRUE(sut_->is_reporting_enabled());
+}
+
+TEST_F(InaSensorTaskTest, DeinitCallsStopAndDriverDeinit)
+{
+    init_sut();
+
+    EXPECT_CALL(mock_driver_, deinit()).WillOnce(Return(ESP_OK));
+
+    EXPECT_EQ(sut_->deinit(), ESP_OK);
+    EXPECT_FALSE(sut_->is_sampling_enabled());
+    EXPECT_FALSE(sut_->is_reporting_enabled());
+}
+

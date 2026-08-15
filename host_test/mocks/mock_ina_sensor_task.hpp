@@ -11,6 +11,7 @@ public:
     MOCK_METHOD(esp_err_t, init, (const InaSensorConfig& config, i2c_master_bus_handle_t i2c_bus), (override));
     MOCK_METHOD(esp_err_t, start, (), (override));
     MOCK_METHOD(void, stop, (), (override));
+    MOCK_METHOD(esp_err_t, deinit, (), (override));
     MOCK_METHOD(void, set_reporting_enabled, (bool enabled), (override));
     MOCK_METHOD(void, set_sampling_enabled, (bool enabled), (override));
     MOCK_METHOD(void, set_shunt_zero_offset_uv, (int16_t offset_uv), (override));

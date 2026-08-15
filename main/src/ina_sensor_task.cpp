@@ -32,7 +32,7 @@ InaSensorTask::InaSensorTask(
 
 InaSensorTask::~InaSensorTask()
 {
-    stop();
+    deinit();
 }
 
 esp_err_t InaSensorTask::init(const InaSensorConfig& config, i2c_master_bus_handle_t i2c_bus)
@@ -59,36 +59,49 @@ esp_err_t InaSensorTask::init(const InaSensorConfig& config, i2c_master_bus_hand
     float r_shunt = driver_.get_config().r_shunt_ohms;
     uv_per_ma_ = (r_shunt > 0.0f) ? (r_shunt * 1000.0f) : 100.0f;
     ESP_LOGI(TAG, "InaSensorTask initialized successfully (R_shunt=%.3f Ohm, uV_per_mA=%.1f)", r_shunt, uv_per_ma_);
+
+    if (task_handle_ == nullptr) {
+        running_.store(true);
+        task_done_semaphore_ = rtos_.semaphore_create_binary();
+        if (task_done_semaphore_ == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
+
+        BaseType_t task_ret = rtos_.task_create(
+            task_entry_point, "InaSensorTask", config_.task_stack_size, this, config_.task_priority, &task_handle_);
+
+        if (task_ret != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create INA Sensor Task");
+            rtos_.semaphore_delete(task_done_semaphore_);
+            task_done_semaphore_ = nullptr;
+            running_.store(false);
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    initialized_ = true;
     return ESP_OK;
 }
 
 esp_err_t InaSensorTask::start()
 {
-    running_.store(true);
-
-    task_done_semaphore_ = rtos_.semaphore_create_binary();
-    if (task_done_semaphore_ == nullptr) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    BaseType_t task_ret = rtos_.task_create(
-        task_entry_point, "InaSensorTask", config_.task_stack_size, this, config_.task_priority, &task_handle_);
-
-    if (task_ret != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create INA Sensor Task");
-        return ESP_ERR_NO_MEM;
-    }
-
+    sampling_enabled_.store(true);
+    reporting_enabled_.store(true);
     return ESP_OK;
 }
 
 void InaSensorTask::stop()
 {
-    running_.store(false);
-    sampling_enabled_ = false;
-    reporting_enabled_ = false;
+    sampling_enabled_.store(false);
+    reporting_enabled_.store(false);
+}
+
+esp_err_t InaSensorTask::deinit()
+{
+    stop();
 
     if (task_handle_ != nullptr) {
+        running_.store(false);
         rtos_.task_notify_give(task_handle_);
         // Wait for task to exit
         uint8_t delay_ms = 10;
@@ -97,9 +110,9 @@ void InaSensorTask::stop()
                 break;
         }
 
-        // Forcing deleting task
+        // Forcing deleting task if timeout occurred
         if (task_handle_ != nullptr) {
-            ESP_LOGW(TAG, "Forcing deletion of tx manager task");
+            ESP_LOGW(TAG, "Forcing deletion of INA sensor task");
             rtos_.task_delete(task_handle_);
             task_handle_ = nullptr;
         }
@@ -108,13 +121,19 @@ void InaSensorTask::stop()
         rtos_.semaphore_delete(task_done_semaphore_);
         task_done_semaphore_ = nullptr;
     }
+
+    if (initialized_) {
+        initialized_ = false;
+        return driver_.deinit();
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t InaSensorTask::prepare_for_sleep()
 {
     // Stop producing samples and reports: the app is about to enter deep sleep.
-    sampling_enabled_.store(false);
-    reporting_enabled_.store(false);
+    stop();
 
     // Slow down the conversions to cut power consumption for the night regime.
     esp_err_t err = apply_night_config(config_.night_config);
@@ -132,6 +151,10 @@ esp_err_t InaSensorTask::prepare_for_sleep()
         ESP_LOGE(TAG, "Failed to configure dawn wakeup alert: %s", esp_err_to_name(err));
         return err;
     }
+
+    // Acknowledge/clear any pending alert flags to ensure ALERT pin is deasserted (HIGH)
+    uint16_t alert_flags = 0;
+    driver_.read_alert_flags(alert_flags);
 
     ESP_LOGI(
         TAG,
@@ -167,6 +190,8 @@ uint32_t InaSensorTask::get_watchdog_timeout_ms() const
 void InaSensorTask::process_cycle()
 {
     if (!sampling_enabled_.load()) {
+        uint16_t alert_flags = 0;
+        driver_.read_alert_flags(alert_flags);
         return;
     }
 
@@ -325,6 +350,11 @@ void InaSensorTask::ina_sensor_task()
     while (running_) {
         if (rtos_.task_notify_take(pdTRUE, timeout_ms)) {
             process_cycle();
+        }
+        else {
+            // Acknowledge alert flags to release the ALERT pin latch if an interrupt was missed
+            uint16_t alert_flags = 0;
+            driver_.read_alert_flags(alert_flags);
         }
     }
 

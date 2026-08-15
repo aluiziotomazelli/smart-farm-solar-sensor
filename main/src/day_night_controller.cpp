@@ -55,22 +55,26 @@ bool DayNightController::should_enter_night_mode(
         return false;
     }
 
+    uint16_t required_samples = config_.hysteresis_sample_count;
+
     if (is_time_synced) {
         SolarDayInfo day_info = calculate_solar_day(day_of_year);
         float current_time_float = static_cast<float>(current_hour_local) + (static_cast<float>(current_minute_local) / 60.0f);
+        float dusk_start = day_info.sunset_hour_local - (static_cast<float>(config_.dusk_margin_before_sunset_min) / 60.0f);
+        float sunrise = day_info.sunrise_hour_local;
 
-        float window_start = day_info.sunset_hour_local - (static_cast<float>(config_.dusk_margin_before_sunset_min) / 60.0f);
-        float window_end = day_info.sunset_hour_local + (static_cast<float>(config_.dusk_margin_after_sunset_min) / 60.0f);
-
-        if (current_time_float < window_start || current_time_float > window_end) {
-            // Outside dusk window (e.g. passing cloud at noon)
+        // In broad daylight (between sunrise and dusk onset), a current drop is treated as transient cloud/shadow
+        bool is_broad_daylight = (current_time_float >= sunrise && current_time_float < dusk_start);
+        if (is_broad_daylight) {
             consecutive_dusk_samples_ = 0;
             return false;
         }
+    } else {
+        required_samples = config_.unsynced_hysteresis_sample_count;
     }
 
     consecutive_dusk_samples_++;
-    return consecutive_dusk_samples_ >= config_.hysteresis_sample_count;
+    return consecutive_dusk_samples_ >= required_samples;
 }
 
 WakeType DayNightController::classify_wake(

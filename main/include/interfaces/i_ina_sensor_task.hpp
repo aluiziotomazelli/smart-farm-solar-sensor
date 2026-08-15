@@ -46,35 +46,43 @@ public:
     /**
      * @brief Initialize the sensor task with configuration and I2C bus.
      *
-     * Must be called exactly once before start(). Configures the INA226
-     * driver with daytime conversion settings and arms the conversion-ready
-     * alert (ALERT_ON_CONVERSION_READY) so the ALERT pin wakes the task
-     * on each completed conversion.
+     * Configures the INA226 driver with daytime conversion settings, arms
+     * the conversion-ready alert (ALERT_ON_CONVERSION_READY), and creates
+     * the FreeRTOS processing task.
      *
      * @param config Sensor configuration (thresholds, intervals, night config)
      * @param i2c_bus Initialized I2C master bus handle
-     * @return ESP_OK on success, ESP_ERR_* on I2C or driver failure
+     * @return ESP_OK on success, ESP_ERR_* on I2C, driver, or task creation failure
      */
     virtual esp_err_t init(const InaSensorConfig& config, i2c_master_bus_handle_t i2c_bus) = 0;
 
     /**
-     * @brief Start the FreeRTOS sensor task.
+     * @brief Start sampling and telemetry reporting.
      *
-     * Creates the task with the stack size and priority from InaSensorConfig.
-     * The task will begin sampling immediately (sampling_enabled defaults to true).
+     * Enables sampling and reporting flags on the running FreeRTOS task.
      *
-     * @return ESP_OK on success, ESP_ERR_NO_MEM if task creation fails
+     * @return ESP_OK on success
      */
     virtual esp_err_t start() = 0;
 
     /**
-     * @brief Stop the sensor task and clean up resources.
+     * @brief Pause sampling and telemetry reporting.
      *
-     * Signals the task to exit, waits for it to terminate (with timeout),
-     * and deletes the task handle and synchronization primitives.
-     * Safe to call multiple times.
+     * Disables sampling and reporting flags. The FreeRTOS task remains
+     * alive in passive wait state. Safe to call multiple times.
      */
     virtual void stop() = 0;
+
+    /**
+     * @brief Deinitialize the sensor task and detach the underlying driver.
+     *
+     * Signals and deletes the FreeRTOS processing task, cleans up synchronization
+     * primitives, and detaches the INA226 device from the I2C master bus.
+     * Safe to call multiple times.
+     *
+     * @return ESP_OK on success, or driver deinit error code.
+     */
+    virtual esp_err_t deinit() = 0;
 
     // ---------------------------------------------------------------------
     // Runtime Control (Thread-safe - atomic operations)

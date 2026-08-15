@@ -451,7 +451,6 @@ void SolarSensor::process_pending_ota()
     }
     btn_trigger_.arm(*this);
     espnow_trigger_.arm(*this);
-    ina_sensor_task_.start();
     if (was_ina_sampling) {
         ina_sensor_task_.set_sampling_enabled(true);
     }
@@ -616,10 +615,11 @@ void SolarSensor::update_current_stats(const InaSample& sample)
 
 esp_err_t SolarSensor::recover_ina_hardware()
 {
-    ina_sensor_task_.stop();
+    ina_sensor_task_.deinit();
 
     if (i2c_bus_handle_ != nullptr) {
         hal_i2c_.del_master_bus(i2c_bus_handle_);
+        i2c_bus_handle_ = nullptr;
     }
 
     // SDA/SCL pins on 0V to avoid parasitic power
@@ -709,8 +709,6 @@ void SolarSensor::enter_deep_sleep()
         return;
     }
 
-    ESP_LOGI(TAG, "Entering deep sleep...");
-
     bool is_synced = time_manager_.is_synchronized();
     uint8_t hour = 0;
     uint8_t minute = 0;
@@ -725,9 +723,19 @@ void SolarSensor::enter_deep_sleep()
         day_of_year = static_cast<uint16_t>(timeinfo.tm_yday + 1);
     }
 
-    uint64_t sleep_time = day_night_controller_.calculate_night_sleep_time_us(is_synced, hour, minute, day_of_year);
+    uint64_t sleep_time_us = day_night_controller_.calculate_night_sleep_time_us(is_synced, hour, minute, day_of_year);
+    uint32_t sleep_minutes = static_cast<uint32_t>(sleep_time_us / 60000000ULL);
 
-    hal_sleep_.enable_timer_wakeup(sleep_time);
+    ESP_LOGI(
+        TAG,
+        "Entering deep sleep for %lu min (%llu us)...",
+        static_cast<unsigned long>(sleep_minutes),
+        static_cast<unsigned long long>(sleep_time_us));
+
+    hal_sleep_.enable_timer_wakeup(sleep_time_us);
+
+    // Keep INA VCC on while sleeping
+    hal_gpio_.hold_en(INA_VCC_GPIO);
 
     // GPIO wakeup on ALERT going LOW: the INA (SHUNT_OVER_VOLTAGE alert armed
     // by prepare_for_sleep()) asserts the pin at dawn. The timer is the
@@ -756,7 +764,24 @@ esp_err_t SolarSensor::init_ina_alert_pin()
         return err;
     }
 
-    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, this);
+    // Allocate the ISR from IRAM so it can fire while the flash cache is
+    // disabled (e.g. during NVS commits) — the handler itself is IRAM_ATTR.
+    err = hal_gpio_.install_isr_service(ESP_INTR_FLAG_IRAM);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to install INA alert GPIO ISR service: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    // Drop any previous registration first: after a recovery the task is
+    // recreated with a new handle, so the ISR must be re-attached with the
+    // fresh handle instead of notifying a deleted task.
+    err = hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to remove stale INA alert GPIO ISR: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, ina_sensor_task_.get_task_handle());
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add INA alert ISR handler: %s", esp_err_to_name(err));
         return err;
@@ -766,18 +791,30 @@ esp_err_t SolarSensor::init_ina_alert_pin()
     return ESP_OK;
 }
 
+/**
+ * @brief Alert interrupt service routine
+ *
+ * @param arg Task handle to be notified
+ *
+ * @note This ISR runs in IRAM for fast execution and notifies the INA sensor
+ * task on every completed conversion (CNVR).
+ */
 void IRAM_ATTR SolarSensor::ina_alert_isr_handler(void* arg)
 {
-    auto* self = static_cast<SolarSensor*>(arg);
-    if (self && self->ina_sample_queue_) {
-        // High-priority ISR wake logic if needed
+    TaskHandle_t task_handle = static_cast<TaskHandle_t>(arg);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    if (task_handle != nullptr) {
+        vTaskNotifyGiveFromISR(task_handle, &xHigherPriorityTaskWoken);
     }
+
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 WakeType SolarSensor::evaluate_boot_mode()
 {
     esp_sleep_wakeup_cause_t cause = hal_sleep_.get_wakeup_cause();
-    bool is_gpio_wakeup = (cause == ESP_SLEEP_WAKEUP_GPIO);
+    bool is_gpio_wakeup = (cause == ESP_SLEEP_WAKEUP_GPIO || cause == ESP_SLEEP_WAKEUP_EXT0);
 
     // Power-on reset / cold boot starts in Day mode
     if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {

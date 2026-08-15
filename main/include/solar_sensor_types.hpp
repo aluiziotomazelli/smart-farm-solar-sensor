@@ -21,7 +21,7 @@ static constexpr uint32_t DEFAULT_FALLBACK_NIGHT_SLEEP_SEC =
     3600;                                                  ///< 60 minutes fallback sleep when clock is not synced
 static constexpr uint8_t DEFAULT_CALIBRATION_HOUR_UTC = 3; ///< 03:00 AM calibration hour
 static constexpr uint8_t DEFAULT_DUSK_MARGIN_BEFORE_SUNSET_MIN = 30;
-static constexpr uint8_t DEFAULT_DUSK_MARGIN_AFTER_SUNSET_MIN = 120;
-static constexpr uint8_t DEFAULT_HYSTERESIS_SAMPLE_COUNT = 15;
+static constexpr uint16_t DEFAULT_HYSTERESIS_SAMPLE_COUNT = 15;        ///< ~2s confirmed darkness (clock synced)
+static constexpr uint16_t DEFAULT_UNSYNCED_HYSTERESIS_SAMPLE_COUNT = 215; ///< ~30s confirmed darkness (unsynced)
 static constexpr float DEFAULT_LATITUDE_DEG = -20.2074f;      ///< Default latitude
 static constexpr float DEFAULT_TIMEZONE_OFFSET_HOURS = -4.0f; ///< Default timezone offset in hours (UTC-4)

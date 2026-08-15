@@ -49,6 +49,9 @@ public:
     /** @copydoc IInaSensorTask::stop */
     void stop() override;
 
+    /** @copydoc IInaSensorTask::deinit */
+    esp_err_t deinit() override;
+
     /** @copydoc IInaSensorTask::set_reporting_enabled */
     void set_reporting_enabled(bool enabled) override { reporting_enabled_.store(enabled); }
 
@@ -93,6 +96,7 @@ private:
     std::atomic<bool> sampling_enabled_{true};     ///< Active sampling state
     std::atomic<bool> running_{false};             ///< Task execution loop state
     std::atomic<int16_t> shunt_zero_offset_uv_{0}; ///< Zero-current shunt offset calibration in uV
+    bool initialized_{false};                      ///< Driver/task initialization state
 
     TaskHandle_t task_handle_ = nullptr;              ///< FreeRTOS task handle
     static void task_entry_point(void* arg);          ///< FreeRTOS static entry point wrapper
