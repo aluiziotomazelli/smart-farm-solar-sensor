@@ -165,24 +165,8 @@ esp_err_t SolarSensor::init()
     }
 
     // 10. Perform post-boot firmware verification
-    OtaVerifyResult verify = ota_controller_.verify_firmware_on_boot(session_healthy_);
-    if (verify.pending_verify) {
-        send_ota_report(verify.exec_result, verify.error_code);
-
-        if (verify.success && verify.version.has_value()) {
-            core_.fw_major = verify.version->major;
-            core_.fw_minor = verify.version->minor;
-            core_.fw_patch = verify.version->patch;
-            pending_core_commit_ = true;
-        }
-        else if (!verify.success) {
-            ESP_LOGE(
-                TAG, "Post-boot OTA verification failed! Delaying for report transmission then triggering rollback...");
-            led_.set_pattern(BlinkPattern::ERROR_BURST);
-            hal_rtos_.task_delay(pdMS_TO_TICKS(500));
-            ota_controller_.rollback_and_reboot();
-            return ESP_FAIL;
-        }
+    if (!is_firmware_healthy(session_healthy_)) {
+        session_healthy_ = false;
     }
 
     if (!session_healthy_) {
@@ -233,23 +217,8 @@ bool SolarSensor::run_day_cycle()
         process_pending_ota();
     }
 
-    // 3. Extract current time information for dusk/solar calculations
-    bool is_synced = time_manager_.is_synchronized();
-    uint8_t hour = 0;
-    uint8_t minute = 0;
-    uint16_t day_of_year = 81; // equinox
-
-    if (is_synced) {
-        time_t now = time_manager_.get_timestamp_sec();
-        struct tm timeinfo{};
-        localtime_r(&now, &timeinfo);
-        hour = static_cast<uint8_t>(timeinfo.tm_hour);
-        minute = static_cast<uint8_t>(timeinfo.tm_min);
-        day_of_year = static_cast<uint16_t>(timeinfo.tm_yday + 1);
-    }
-
     // 4. Process INA samples and check dusk condition
-    if (process_ina_samples(is_synced, hour, minute, day_of_year)) {
+    if (process_ina_samples(get_synced_time())) {
         return false; // Entered deep sleep
     }
 
@@ -534,7 +503,15 @@ esp_err_t SolarSensor::init_ina_task(InaSensorConfig config)
     return ina_sensor_task_.start();
 }
 
-bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year)
+std::optional<time_t> SolarSensor::get_synced_time() const
+{
+    if (!time_manager_.is_synchronized()) {
+        return std::nullopt;
+    }
+    return static_cast<time_t>(time_manager_.get_timestamp_sec());
+}
+
+bool SolarSensor::process_ina_samples(std::optional<time_t> unix_time)
 {
     if (ina_sample_queue_ == nullptr || !ina_sensor_task_.is_sampling_enabled()) {
         return false;
@@ -573,8 +550,7 @@ bool SolarSensor::process_ina_samples(bool is_synced, uint8_t hour, uint8_t minu
 
         telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
 
-        if (day_night_controller_.should_enter_night_mode(
-                sample.isc_current_ma, is_synced, hour, minute, day_of_year)) {
+        if (day_night_controller_.should_enter_night_mode(sample.isc_current_ma, unix_time)) {
             ESP_LOGI(TAG, "Dusk detected (current: %u mA). Entering night sleep...", sample.isc_current_ma);
             stats_.is_night_mode = true;
             telemetry_snapshot_.set_night_mode(true);
@@ -707,28 +683,14 @@ void SolarSensor::enter_deep_sleep()
     // Arm the night regime before sleeping. Without it the conversion-ready
     // alert (CNVR) stays armed, so the INA asserts the ALERT pin on every
     // conversion and the MCU would wake in a tight loop. On failure, abort
-    // the sleep instead — the app watchdog handles the error.
     esp_err_t err = ina_sensor_task_.prepare_for_sleep();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to prepare INA for sleep (%s), aborting deep sleep", esp_err_to_name(err));
         return;
     }
 
-    bool is_synced = time_manager_.is_synchronized();
-    uint8_t hour = 0;
-    uint8_t minute = 0;
-    uint16_t day_of_year = 81;
-
-    if (is_synced) {
-        time_t now = time_manager_.get_timestamp_sec();
-        struct tm timeinfo{};
-        localtime_r(&now, &timeinfo);
-        hour = static_cast<uint8_t>(timeinfo.tm_hour);
-        minute = static_cast<uint8_t>(timeinfo.tm_min);
-        day_of_year = static_cast<uint16_t>(timeinfo.tm_yday + 1);
-    }
-
-    uint64_t sleep_time_us = day_night_controller_.calculate_night_sleep_time_us(is_synced, hour, minute, day_of_year);
+    auto unix_time = get_synced_time();
+    uint64_t sleep_time_us = day_night_controller_.calculate_night_sleep_time_us(unix_time);
     uint32_t sleep_minutes = static_cast<uint32_t>(sleep_time_us / 60000000ULL);
 
     ESP_LOGI(
@@ -786,7 +748,7 @@ esp_err_t SolarSensor::init_ina_alert_pin()
         return err;
     }
 
-    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, ina_sensor_task_.get_task_handle());
+    err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, this);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add INA alert ISR handler: %s", esp_err_to_name(err));
         return err;
@@ -799,18 +761,18 @@ esp_err_t SolarSensor::init_ina_alert_pin()
 /**
  * @brief Alert interrupt service routine
  *
- * @param arg Task handle to be notified
+ * @param arg Pointer to SolarSensor instance
  *
  * @note This ISR runs in IRAM for fast execution and notifies the INA sensor
  * task on every completed conversion (CNVR).
  */
 void IRAM_ATTR SolarSensor::ina_alert_isr_handler(void* arg)
 {
-    TaskHandle_t task_handle = static_cast<TaskHandle_t>(arg);
+    auto* self = static_cast<SolarSensor*>(arg);
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    if (task_handle != nullptr) {
-        vTaskNotifyGiveFromISR(task_handle, &xHigherPriorityTaskWoken);
+    if (self->ina_sensor_task_.get_task_handle() != nullptr) {
+        vTaskNotifyGiveFromISR(self->ina_sensor_task_.get_task_handle(), &xHigherPriorityTaskWoken);
     }
 
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -837,28 +799,17 @@ WakeType SolarSensor::evaluate_boot_mode()
         }
     }
 
-    bool is_synced = time_manager_.is_synchronized();
-    uint8_t current_hour_local = 0;
-    if (is_synced) {
-        time_t now = static_cast<time_t>(time_manager_.get_timestamp_sec());
-        struct tm timeinfo{};
-        localtime_r(&now, &timeinfo);
-        // TODO: verify if only hour can't cause false negative dua drif in RTC in deep sleep
-        current_hour_local = static_cast<uint8_t>(timeinfo.tm_hour);
-    }
-
-    WakeType wake_type =
-        day_night_controller_.classify_wake(is_gpio_wakeup, initial_current_ma, is_synced, current_hour_local);
+    auto unix_time = get_synced_time();
+    WakeType wake_type = day_night_controller_.classify_wake(is_gpio_wakeup, initial_current_ma, unix_time);
 
     ESP_LOGI(
         TAG,
-        "Evaluated boot mode: %d (cause=%d, gpio=%d, current=%u mA, synced=%d, hour=%u)",
+        "Evaluated boot mode: %d (cause=%d, gpio=%d, current=%u mA, synced=%d)",
         static_cast<int>(wake_type),
         static_cast<int>(cause),
         is_gpio_wakeup,
         initial_current_ma,
-        is_synced,
-        current_hour_local);
+        unix_time.has_value());
 
     return wake_type;
 }
@@ -1044,4 +995,34 @@ void SolarSensor::check_espnow_connection()
             led_.set_pattern(BlinkPattern::OFF);
         }
     }
+}
+
+bool SolarSensor::is_firmware_healthy(bool healthy)
+{
+    OtaVerifyResult verify = ota_controller_.verify_firmware_on_boot(healthy);
+    if (!verify.pending_verify) {
+        return true;
+    }
+
+    if (verify.success) {
+        if (verify.version.has_value()) {
+            core_.fw_major = verify.version->major;
+            core_.fw_minor = verify.version->minor;
+            core_.fw_patch = verify.version->patch;
+        }
+        pending_core_commit_ = true;
+        send_ota_report(verify.exec_result, verify.error_code);
+        return true;
+    }
+    else {
+        ESP_LOGE(
+            TAG, "Post-boot OTA verification failed! Delaying for report transmission then triggering rollback...");
+        led_.set_pattern(BlinkPattern::ERROR_BURST);
+        send_ota_report(verify.exec_result, verify.error_code);
+        hal_rtos_.task_delay(pdMS_TO_TICKS(500));
+        ota_controller_.rollback_and_reboot();
+        return false;
+    }
+
+    return false;
 }

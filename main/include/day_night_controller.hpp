@@ -1,7 +1,9 @@
 #pragma once
 
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
+#include <ctime>
+#include <optional>
 
 #include "ina_sensor_types.hpp"
 #include "solar_sensor_types.hpp"
@@ -65,46 +67,32 @@ public:
     /**
      * @brief Evaluates whether node should transition from DAY to NIGHT mode (Dusk).
      * @param current_ma Instantaneous current in mA.
-     * @param is_time_synced True if time manager has valid clock.
-     * @param current_hour_local Local hour of day (0-23).
-     * @param current_minute_local Local minute (0-59).
-     * @param day_of_year Day of year (1-365).
+     * @param unix_time Optional Unix timestamp in seconds (if clock is synchronized).
      * @return true if dusk conditions are met, false otherwise.
      */
     bool should_enter_night_mode(
         uint16_t current_ma,
-        bool is_time_synced,
-        uint8_t current_hour_local,
-        uint8_t current_minute_local,
-        uint16_t day_of_year);
+        std::optional<time_t> unix_time);
 
     /**
      * @brief Classifies a sleep wakeup event.
      * @param is_gpio_wakeup True if woken by GPIO (INA ALERT pin).
      * @param current_ma Measured current in mA after wakeup.
-     * @param is_time_synced True if system time is valid.
-     * @param current_hour_local Local hour (0-23).
+     * @param unix_time Optional Unix timestamp in seconds (if clock is synchronized).
      * @return WakeType classification.
      */
     WakeType classify_wake(
         bool is_gpio_wakeup,
         uint16_t current_ma,
-        bool is_time_synced,
-        uint8_t current_hour_local) const;
+        std::optional<time_t> unix_time) const;
 
     /**
      * @brief Calculates next night deep sleep duration in microseconds.
-     * @param is_time_synced True if system time is valid.
-     * @param current_hour_local Local hour (0-23).
-     * @param current_minute_local Local minute (0-59).
-     * @param day_of_year Day of year (1-365).
+     * @param unix_time Optional Unix timestamp in seconds (if clock is synchronized).
      * @return Sleep duration in microseconds.
      */
     uint64_t calculate_night_sleep_time_us(
-        bool is_time_synced,
-        uint8_t current_hour_local,
-        uint8_t current_minute_local,
-        uint16_t day_of_year) const;
+        std::optional<time_t> unix_time) const;
 
     /**
      * @brief Resets hysteresis counter for dusk detection.
@@ -115,6 +103,15 @@ public:
     void set_config(const DayNightConfig& config) { config_ = config; }
 
 private:
+    struct LocalTime
+    {
+        uint8_t hour = 0;
+        uint8_t minute = 0;
+        uint16_t day_of_year = 81;
+    };
+
+    LocalTime decompose(time_t unix_time) const;
+
     DayNightConfig config_;
     uint16_t consecutive_dusk_samples_ = 0;
 };

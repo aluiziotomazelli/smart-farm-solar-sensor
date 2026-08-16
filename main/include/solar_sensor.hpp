@@ -122,9 +122,12 @@ private:
 
     void process_pending_ota();
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
+    bool is_firmware_healthy(bool healthy);
+
     esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
+    std::optional<time_t> get_synced_time() const;
     void save_persistent_state();
-    bool process_ina_samples(bool is_synced, uint8_t hour, uint8_t minute, uint16_t day_of_year);
+    bool process_ina_samples(std::optional<time_t> unix_time);
     void update_current_stats(const InaSample& sample);
     esp_err_t recover_ina_hardware();
     WakeType evaluate_boot_mode();
