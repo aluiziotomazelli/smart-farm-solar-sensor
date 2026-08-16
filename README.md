@@ -28,7 +28,9 @@ $$\text{Estimated STC Array Capacity } (W) = \frac{I_{sc\_ma} \times 2640\text{ 
 
 ---
 
-## 2. Hardware Pinout (Seeed XIAO ESP32-C3)
+## 2. Hardware Pinout & Schematic (Seeed XIAO ESP32-C3)
+
+### Pinout Table
 
 | Pin    | GPIO      | Constant             | Description                                            |
 | :----- | :-------- | :------------------- | :----------------------------------------------------- |
@@ -43,6 +45,10 @@ $$\text{Estimated STC Array Capacity } (W) = \frac{I_{sc\_ma} \times 2640\text{ 
 | **D8** | `GPIO 8`  | `DS18B20_GPIO`       | 1-Wire data bus for DS18B20 digital temperature sensor |
 | **D9** | `GPIO 9`  | `BOOT_BUTTON_GPIO`   | Boot button / manual OTA mode trigger                  |
 | **D10**| `GPIO 10` | *(Free)*             | General purpose I/O                                    |
+
+### Circuit Schematic
+
+![Solar Sensor Schematic](docs/solar-sensor_schematic.svg)
 
 ---
 
