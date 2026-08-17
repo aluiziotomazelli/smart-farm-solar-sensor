@@ -19,7 +19,7 @@ protected:
     NiceMock<espnow::MockEspNowManager> mock_espnow_;
     NiceMock<time_manager::MockTimeManager> mock_time_;
     NiceMock<idf_hals::MockHalFreertos> mock_freertos_;
-    CoreStorage core_{};
+    CoreData core_{};
 
     std::unique_ptr<CommandHandler> sut_;
 
