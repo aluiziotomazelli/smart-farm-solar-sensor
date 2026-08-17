@@ -30,7 +30,7 @@ public:
         QueueHandle_t rx_queue,
         espnow::IEspNowManager& espnow,
         time_manager::ITimeManager& time_manager,
-        CoreStorage& core,
+        CoreData& core,
         idf_hals::IHalFreertos& hal_freertos);
 
     /**
@@ -43,6 +43,6 @@ private:
     QueueHandle_t rx_queue_;
     espnow::IEspNowManager& espnow_;
     time_manager::ITimeManager& time_manager_;
-    CoreStorage& core_;
+    CoreData& core_;
     idf_hals::IHalFreertos& hal_freertos_;
 };

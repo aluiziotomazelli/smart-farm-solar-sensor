@@ -1,15 +1,15 @@
-// main/src/solar_sensor.cpp
+#define LOG_LOCAL_LEVEL ESP_LOG_INFO
+#include "esp_log.h"
+
 #include "solar_sensor.hpp"
 
 #include <algorithm>
 #include <cmath>
 
+#include "esp_intr_alloc.h"
+
 #include "secrets.hpp"
 #include "ina_sensor_types.hpp"
-
-#define LOG_LOCAL_LEVEL ESP_LOG_INFO
-#include "esp_log.h"
-#include "esp_intr_alloc.h"
 
 static const char* TAG = "SolarSensor";
 
@@ -273,14 +273,22 @@ esp_err_t SolarSensor::init_time()
 
 esp_err_t SolarSensor::init_core_storage()
 {
-    CoreStorage default_core = {};
+    CoreData default_core = {};
     default_core.reset();
     default_core.node_id = farm::NodeId::SOLAR_SENSOR;
     default_core.node_type = farm::NodeType::SENSOR;
     default_core.power_profile = farm::PowerProfile::ALWAYS_ON;
 
-    return core_storage_.init(
-        core_, default_core, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+    esp_err_t ret = core_storage_.init(core_, default_core);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize core storage: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    core_storage_.process_boot_reasons(
+        core_, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+
+    return ESP_OK;
 }
 
 esp_err_t SolarSensor::init_solar_storage()

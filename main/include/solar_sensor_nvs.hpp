@@ -1,25 +1,25 @@
 #pragma once
 
-#include "interfaces/i_solar_sensor_nvs.hpp"
-#include "interfaces/i_persistence_backend.hpp"
 #include "app_storage.hpp"
+#include "interfaces/i_persistence_backend.hpp"
+#include "interfaces/i_solar_sensor_nvs.hpp"
+#include "solar_sensor_stats.hpp"
 
 /**
  * @class SolarSensorNvs
  * @brief Persistent storage handler for the Solar Sensor application.
  */
-class SolarSensorNvs : public ISolarSensorNvs, public AppStorage<SolarStats>
-
+class SolarSensorNvs : public ISolarSensorNvs,
+                       public AppStorage<SolarStats, SOLAR_STATS_MAGIC, SOLAR_STATS_VERSION>
 {
 public:
     SolarSensorNvs(IPersistenceBackend& rtc_stats, IPersistenceBackend& nvs_stats)
-        : AppStorage<SolarStats>(rtc_stats, nvs_stats, "SolarSensorNvs")
+        : AppStorage<SolarStats, SOLAR_STATS_MAGIC, SOLAR_STATS_VERSION>(rtc_stats, nvs_stats, "SolarSensorNvs")
     {
     }
 
-    /** @brief Initializes the application statistics and state. To be used in boot, load from NVS and saves default
-     * values if NVS is empty or contains data with different CRC
-     * @param[out] stats The struct to populate with default data.
+    /** @brief Initializes the application statistics and state. Loads from storage or persists default stats if empty/invalid.
+     * @param[out] stats The struct to populate with loaded/default data.
      * @param[in] default_stats The struct containing the default data.
      * @return ESP_OK on success, or an error code.
      */
