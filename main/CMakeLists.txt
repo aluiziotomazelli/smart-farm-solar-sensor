@@ -11,7 +11,6 @@ idf_component_register(
     SRCS
         "main.cpp"
         "src/solar_sensor.cpp"
-        "src/solar_sensor_nvs.cpp"
         "src/ina_sensor_task.cpp"
         "src/command_handler.cpp"
         "src/day_night_controller.cpp"

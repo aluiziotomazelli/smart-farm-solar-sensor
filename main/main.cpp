@@ -113,8 +113,8 @@ static SlowSensorsConfig slow_sensors_config{
     .task_stack_size = 3072,
     .task_priority = 2,
 };
-static SlowSensorsTask slow_sensors_task{
-    bat_monitor, ds18b20_driver, hal_freertos, g_telemetry_snapshot, slow_sensors_config};
+static SlowSensorsTask
+    slow_sensors_task{bat_monitor, ds18b20_driver, hal_freertos, g_telemetry_snapshot, slow_sensors_config};
 
 // Persistence and App instantiation
 static RTC_DATA_ATTR CoreStorage g_rtc_core;
