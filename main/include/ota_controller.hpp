@@ -7,14 +7,12 @@
 #include "interfaces/i_hal_freertos.hpp"
 
 /**
- * @struct OtaVerifyResult
+ * @struct OtaActionResult
  * @brief Result of firmware verification on boot.
  */
-struct OtaVerifyResult
+struct OtaActionResult
 {
-    bool pending_verify{false};               ///< True if a post-OTA verification was pending on boot
-    bool success{false};                      ///< True if app was valid and confirmed
-    std::optional<OtaVersion> version;        ///< Confirmed firmware version (present if success == true)
+    bool success{false}; ///< True if app was valid and confirmed
     farm::OtaExecResult exec_result{farm::OtaExecResult::CONFIRMED_SUCCESS};
     farm::OtaErrorCode error_code{farm::OtaErrorCode::NONE};
 };
@@ -34,28 +32,35 @@ public:
     bool init(const OtaConfig& config);
 
     /**
+     * @brief Checks if there is a pending OTA operation.
+     * @return True if there is a pending operation, false otherwise.
+     */
+    bool check_pending_verify() const;
+
+    /**
+     * @brief Returns the currently running firmware version.
+     * @return Optional OtaVersion struct.
+     */
+    std::optional<OtaVersion> get_running_version() const;
+
+    /**
      * @brief Performs post-boot firmware verification.
      * @param session_healthy True if system startup/sessions were healthy.
      * @return OtaVerifyResult struct.
      */
-    OtaVerifyResult verify_firmware_on_boot(bool session_healthy);
+    OtaActionResult confirm_firmware(bool session_healthy);
 
     /**
      * @brief Executes active OTA download polling until completed or failed.
      * @param timeout_ms Maximum time to wait for download to finish.
      * @return OtaVerifyResult struct.
      */
-    OtaVerifyResult execute_download(uint32_t timeout_ms = 60000);
+    OtaActionResult execute_download(uint32_t timeout_ms = 60000);
 
     /**
      * @brief Triggers rollback to previous firmware partition and reboots.
      */
     void rollback_and_reboot();
-
-    /**
-     * @brief Helper to map OtaFailReason from OtaManager to protocol OtaErrorCode.
-     */
-    static farm::OtaErrorCode map_fail_reason(OtaFailReason reason);
 
 private:
     IOtaManager& ota_manager_;

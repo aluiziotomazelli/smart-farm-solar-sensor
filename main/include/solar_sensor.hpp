@@ -120,6 +120,7 @@ private:
     esp_err_t init_espnow();
     esp_err_t init_i2c_master_bus(i2c_master_bus_handle_t& i2c_bus_handle);
 
+    void update_running_version();
     void process_pending_ota();
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
     bool is_firmware_healthy(bool healthy);

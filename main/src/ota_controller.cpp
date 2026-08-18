@@ -3,6 +3,8 @@
 
 static const char* TAG = "OtaController";
 
+static farm::OtaErrorCode map_fail_reason(OtaFailReason reason);
+
 OtaController::OtaController(IOtaManager& ota_manager, idf_hals::IHalFreertos& hal_freertos)
     : ota_manager_(ota_manager)
     , hal_freertos_(hal_freertos)
@@ -14,36 +16,14 @@ bool OtaController::init(const OtaConfig& config)
     return ota_manager_.init(config);
 }
 
-OtaVerifyResult OtaController::verify_firmware_on_boot(bool session_healthy)
+bool OtaController::check_pending_verify() const
 {
-    OtaVerifyResult result{};
-    result.pending_verify = ota_manager_.check_pending_verify();
+    return ota_manager_.check_pending_verify();
+}
 
-    if (!result.pending_verify) {
-        return result;
-    }
-
-    if (!session_healthy || !ota_manager_.confirm_app_valid()) {
-        result.success = false;
-        result.exec_result = farm::OtaExecResult::ROLLBACK_TRIGGERED;
-        result.error_code = !session_healthy ? farm::OtaErrorCode::HEALTH_CHECK_FAILED
-                                              : farm::OtaErrorCode::PARTITION_CONFIRM_FAILED;
-
-        ESP_LOGE(TAG, "Firmware verification failed (reason: %d)", static_cast<int>(result.error_code));
-        return result;
-    }
-
-    result.success = true;
-    result.exec_result = farm::OtaExecResult::CONFIRMED_SUCCESS;
-    result.error_code = farm::OtaErrorCode::NONE;
-    result.version = ota_manager_.get_running_version();
-
-    if (result.version.has_value()) {
-        ESP_LOGI(TAG, "Firmware confirmed successfully. Running version: %u.%u.%u",
-                 result.version->major, result.version->minor, result.version->patch);
-    }
-
-    return result;
+std::optional<OtaVersion> OtaController::get_running_version() const
+{
+    return ota_manager_.get_running_version();
 }
 
 void OtaController::rollback_and_reboot()
@@ -52,10 +32,32 @@ void OtaController::rollback_and_reboot()
     ota_manager_.rollback_and_reboot();
 }
 
-OtaVerifyResult OtaController::execute_download(uint32_t timeout_ms)
+OtaActionResult OtaController::confirm_firmware(bool session_healthy)
 {
-    OtaVerifyResult result{};
-    result.version = ota_manager_.get_running_version();
+    OtaActionResult result = {};
+
+    if (!session_healthy || !ota_manager_.confirm_app_valid()) {
+        result.success = false;
+        result.exec_result = farm::OtaExecResult::ROLLBACK_TRIGGERED;
+        result.error_code =
+            !session_healthy ? farm::OtaErrorCode::HEALTH_CHECK_FAILED : farm::OtaErrorCode::PARTITION_CONFIRM_FAILED;
+
+        ESP_LOGE(TAG, "Firmware verification failed (reason: %d)", static_cast<int>(result.error_code));
+        return result;
+    }
+
+    // App is healthy and was successfully confirmed,
+    result.success = true;
+    result.exec_result = farm::OtaExecResult::CONFIRMED_SUCCESS;
+    result.error_code = farm::OtaErrorCode::NONE;
+
+    return result;
+}
+
+OtaActionResult OtaController::execute_download(uint32_t timeout_ms)
+
+{
+    OtaActionResult result = {};
 
     if (!ota_manager_.start_ota()) {
         ESP_LOGE(TAG, "Failed to start OTA download session");
@@ -86,21 +88,22 @@ OtaVerifyResult OtaController::execute_download(uint32_t timeout_ms)
         if (status == OtaStatus::FAILED) {
             OtaFailReason reason = ota_manager_.get_last_error();
             result.error_code = map_fail_reason(reason);
-            ESP_LOGE(TAG, "OTA download failed (reason: %d, error_code: %d)",
-                     static_cast<int>(reason), static_cast<int>(result.error_code));
+            ESP_LOGE(
+                TAG,
+                "OTA download failed (reason: %d, error_code: %d)",
+                static_cast<int>(reason),
+                static_cast<int>(result.error_code));
         }
         else if (elapsed_ms >= timeout_ms) {
             result.error_code = farm::OtaErrorCode::WATCHDOG_TIMEOUT;
-            ESP_LOGE(TAG, "OTA download watchdog timeout (>%u ms)", timeout_ms);
+            ESP_LOGE(TAG, "OTA global watchdog timeout (>%u ms)", timeout_ms);
         }
-
         ota_manager_.cancel_ota();
     }
-
     return result;
 }
 
-farm::OtaErrorCode OtaController::map_fail_reason(OtaFailReason reason)
+static farm::OtaErrorCode map_fail_reason(OtaFailReason reason)
 {
     switch (reason) {
     case OtaFailReason::MANIFEST_URL_INVALID:
