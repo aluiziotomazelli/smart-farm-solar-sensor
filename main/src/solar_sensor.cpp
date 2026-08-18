@@ -1026,4 +1026,5 @@ void SolarSensor::update_running_version()
             pending_core_commit_ = true; // Garante que a nova versão será gravada no NVS
         }
     }
+    ESP_LOGI(TAG, "Running version: %u.%u.%u", core_.fw_major, core_.fw_minor, core_.fw_patch);
 }
