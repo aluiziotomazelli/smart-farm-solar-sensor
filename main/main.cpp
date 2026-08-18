@@ -113,8 +113,8 @@ static SlowSensorsConfig slow_sensors_config{
     .task_stack_size = 3072,
     .task_priority = 2,
 };
-static SlowSensorsTask slow_sensors_task{
-    bat_monitor, ds18b20_driver, hal_freertos, g_telemetry_snapshot, slow_sensors_config};
+static SlowSensorsTask
+    slow_sensors_task{bat_monitor, ds18b20_driver, hal_freertos, g_telemetry_snapshot, slow_sensors_config};
 
 // Persistence and App instantiation
 static RTC_DATA_ATTR CoreStorage g_rtc_core;
@@ -122,8 +122,8 @@ static RtcBackend rtc_core_backend(&g_rtc_core, sizeof(CoreStorage));
 static NvsBackend nvs_core_backend{nvs_hal, CORE_NVS_KEY};
 static NvsCore nvs_core{rtc_core_backend, nvs_core_backend};
 
-static RTC_DATA_ATTR SolarStats g_rtc_stats;
-static RtcBackend rtc_stats_backend(&g_rtc_stats, sizeof(SolarStats));
+static RTC_DATA_ATTR SolarStorage g_rtc_stats;
+static RtcBackend rtc_stats_backend(&g_rtc_stats, sizeof(SolarStorage));
 static NvsBackend nvs_stats_backend{nvs_hal, STATS_NVS_KEY};
 static SolarSensorNvs nvs_solar{rtc_stats_backend, nvs_stats_backend};
 

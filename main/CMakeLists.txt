@@ -11,13 +11,11 @@ idf_component_register(
     SRCS
         "main.cpp"
         "src/solar_sensor.cpp"
-        "src/solar_sensor_nvs.cpp"
         "src/ina_sensor_task.cpp"
         "src/command_handler.cpp"
         "src/day_night_controller.cpp"
         "src/ota_controller.cpp"
         "src/slow_sensors_task.cpp"
-        "src/led_controller.cpp"
     INCLUDE_DIRS
         "include"
         "include/interfaces"

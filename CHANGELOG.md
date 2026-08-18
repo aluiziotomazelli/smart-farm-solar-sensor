@@ -2,6 +2,16 @@
 
 All notable changes to the `smart-farm-solar-sensor` project will be documented in this file.
 
+## [0.1.3] - 2026-08-17
+
+### Changed
+- Refactored `SolarSensorNvs` to inherit from the generic `AppStorage<SolarStats, Magic, Version>` CRTP base class in `smart-farm-common`, eliminating local NVS boilerplate and implementation files.
+- Decoupled domain struct `SolarStats` from storage metadata (`magic`, `version`, `crc`), wrapping it automatically with the new `StorageEnvelope` pattern.
+- Migrated `CoreStorage` usage to pure `CoreData` and separated `process_boot_reasons()` from storage initialization.
+- Simplified `init_solar_storage()` and `init_core_storage()` logic utilizing `init_app_data()` / `init()` with automatic fallback to defaults.
+- Migrated dedicated NVS unit tests to the generic test suite `test_app_storage` in `smart-farm-common`.
+- Bumped firmware version to `0.1.3`.
+
 ## [0.1.0] - 2026-08-13
 
 ### Added

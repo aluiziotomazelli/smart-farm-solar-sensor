@@ -16,6 +16,14 @@ public:
     virtual ~ISolarSensorNvs() = default;
 
     /**
+     * @brief Initializes the application statistics and state.
+     * @param[out] stats The struct to populate with default data.
+     * @param[in] default_stats The struct containing the default data.
+     * @return ESP_OK on success, or an error code.
+     */
+    virtual esp_err_t init_app_data(SolarStats& stats, const SolarStats& default_stats) = 0;
+
+    /**
      * @brief Loads the application statistics and state.
      * @param[out] stats The struct to populate with loaded data.
      * @return ESP_OK on success, or an error code.

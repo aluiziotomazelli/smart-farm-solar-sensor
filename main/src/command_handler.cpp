@@ -8,7 +8,7 @@ CommandHandler::CommandHandler(
     QueueHandle_t rx_queue,
     espnow::IEspNowManager& espnow,
     time_manager::ITimeManager& time_manager,
-    CoreStorage& core,
+    CoreData& core,
     idf_hals::IHalFreertos& hal_freertos)
     : rx_queue_(rx_queue)
     , espnow_(espnow)
@@ -79,8 +79,8 @@ CommandProcessResult CommandHandler::process()
         }
         else if (cmd_type == static_cast<uint8_t>(espnow::CommandType::SET_REPORT_INTERVAL) ||
                  cmd_type == static_cast<uint8_t>(farm::CommandType::SLEEP_OVERRIDE) ||
-                 cmd_type == static_cast<uint8_t>(farm::CommandType::PUMP_TURN_ON) ||
-                 cmd_type == static_cast<uint8_t>(farm::CommandType::PUMP_TURN_OFF)) {
+                 cmd_type == static_cast<uint8_t>(farm::CommandType::LOAD_ON) ||
+                 cmd_type == static_cast<uint8_t>(farm::CommandType::LOAD_OFF)) {
             ESP_LOGW(TAG, "Command 0x%02X not supported by SolarSensor", cmd_type);
             if (msg.requires_ack) {
                 espnow_.confirm_reception(msg.sender_id, msg.sequence_number, espnow::AckStatus::ERROR_INVALID_DATA);

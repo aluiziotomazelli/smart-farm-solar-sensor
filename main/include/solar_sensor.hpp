@@ -72,7 +72,7 @@ public:
     const SolarStats& get_solar_stats() const { return stats_; }
 
 protected:
-    CoreStorage core_;
+    CoreData core_;
     SolarStats stats_;
 
     bool session_healthy_ = true;

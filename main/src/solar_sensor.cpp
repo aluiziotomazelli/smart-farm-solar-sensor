@@ -1,15 +1,15 @@
-// main/src/solar_sensor.cpp
+#define LOG_LOCAL_LEVEL ESP_LOG_INFO
+#include "esp_log.h"
+
 #include "solar_sensor.hpp"
 
 #include <algorithm>
 #include <cmath>
 
+#include "esp_intr_alloc.h"
+
 #include "secrets.hpp"
 #include "ina_sensor_types.hpp"
-
-#define LOG_LOCAL_LEVEL ESP_LOG_INFO
-#include "esp_log.h"
-#include "esp_intr_alloc.h"
 
 static const char* TAG = "SolarSensor";
 
@@ -273,44 +273,42 @@ esp_err_t SolarSensor::init_time()
 
 esp_err_t SolarSensor::init_core_storage()
 {
-    CoreStorage default_core = {};
+    CoreData default_core = {};
     default_core.reset();
     default_core.node_id = farm::NodeId::SOLAR_SENSOR;
     default_core.node_type = farm::NodeType::SENSOR;
     default_core.power_profile = farm::PowerProfile::ALWAYS_ON;
 
-    return core_storage_.init(
-        core_, default_core, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+    esp_err_t ret = core_storage_.init(core_, default_core);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize core storage: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    core_storage_.process_boot_reasons(
+        core_, hal_system_.reset_reason(), hal_sleep_.get_wakeup_cause(), pending_core_commit_);
+
+    return ESP_OK;
 }
 
 esp_err_t SolarSensor::init_solar_storage()
 {
-    esp_err_t ret = solar_storage_.load_app_data(stats_);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Loaded solar stats from storage");
-        yield_umah_accumulator_ = static_cast<uint64_t>(stats_.daily_yield_mah) * 1000ULL;
-        telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
-        telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
-        telemetry_snapshot_.update_battery(
-            stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
-        ina_sensor_task_.set_shunt_zero_offset_uv(stats_.shunt_zero_offset_uv);
-        return ESP_OK;
+    SolarStats default_stats = {};
+    default_stats.reset();
+
+    esp_err_t ret = solar_storage_.init_app_data(stats_, default_stats);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize solar storage: %s", esp_err_to_name(ret));
+        return ret;
     }
 
-    ESP_LOGW(TAG, "Solar storage load failed (%s), recreating default storage", esp_err_to_name(ret));
-    stats_.reset();
-    yield_umah_accumulator_ = 0;
-    ret = solar_storage_.save_app_data(stats_, /*force_nvs_commit=*/true);
-    if (ret == ESP_OK) {
-        telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
-        telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
-        telemetry_snapshot_.update_battery(
-            stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
-        return ESP_OK;
-    }
+    yield_umah_accumulator_ = static_cast<uint64_t>(stats_.daily_yield_mah) * 1000ULL;
+    telemetry_snapshot_.update_stats(stats_.max_day_current_ma, stats_.daily_yield_mah);
+    telemetry_snapshot_.set_night_mode(stats_.is_night_mode);
+    telemetry_snapshot_.update_battery(stats_.last_battery_mv, stats_.last_battery_percent, stats_.last_battery_state);
+    ina_sensor_task_.set_shunt_zero_offset_uv(stats_.shunt_zero_offset_uv);
 
-    ESP_LOGE(TAG, "Failed to initialize solar storage: %s", esp_err_to_name(ret));
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t SolarSensor::init_espnow()
