@@ -129,6 +129,7 @@ esp_err_t SolarSensor::init()
         ESP_LOGE(TAG, "Failed to initialize solar storage: %s", esp_err_to_name(err));
         session_healthy_ = false;
     }
+    update_running_version();
 
     // 5. Initialize and start SlowSensorsTask (Battery + DS18B20)
     if ((err = slow_sensors_task_.init()) != ESP_OK) {
@@ -388,8 +389,8 @@ void SolarSensor::process_pending_ota()
     }
 
     if (wifi_ok) {
-        OtaVerifyResult dl = ota_controller_.execute_download();
-        if (dl.success) {
+        OtaActionResult result = ota_controller_.execute_download();
+        if (result.success) {
             ESP_LOGI(TAG, "OTA download succeeded! Saving state and restarting...");
             pending_core_commit_ = true;
             pending_solar_commit_ = true;
@@ -400,14 +401,9 @@ void SolarSensor::process_pending_ota()
             return;
         }
         else {
-            ESP_LOGE(TAG, "OTA download failed (error_code: %d)", static_cast<int>(dl.error_code));
+            ESP_LOGE(TAG, "OTA download failed (error_code: %d)", static_cast<int>(result.error_code));
             led_.set_pattern(BlinkPattern::ERROR_BURST);
-            if (dl.version.has_value()) {
-                core_.fw_major = dl.version->major;
-                core_.fw_minor = dl.version->minor;
-                core_.fw_patch = dl.version->patch;
-            }
-            send_ota_report(dl.exec_result, dl.error_code);
+            send_ota_report(result.exec_result, result.error_code);
         }
     }
     else {
@@ -891,8 +887,8 @@ void SolarSensor::process_night_calibration()
 
 void SolarSensor::process_spurious_wake()
 {
-    // TODO: Implement lightning flash detection and event logging when night wake is triggered by brief nocturnal light
-    // pulses (e.g. lightning).
+    // TODO: Implement lightning flash detection and event logging when night wake is triggered by brief nocturnal
+    // light pulses (e.g. lightning).
     ESP_LOGI(TAG, "Spurious night wakeup detected. Re-entering deep sleep...");
     enter_deep_sleep();
 }
@@ -921,7 +917,8 @@ esp_err_t SolarSensor::send_night_transition_report(bool requires_ack)
 
     ESP_LOGI(
         TAG,
-        "TX Night Telemetry Report: profile=%d, Bat=%u mV (%u%%), Temp=%d (0.1C), MaxDay=%u mA, Yield=%lu mAh, ACK=%d",
+        "TX Night Telemetry Report: profile=%d, Bat=%u mV (%u%%), Temp=%d (0.1C), MaxDay=%u mA, Yield=%lu mAh, "
+        "ACK=%d",
         static_cast<int>(report.power_profile),
         report.battery_mv,
         report.battery_percent,
@@ -997,30 +994,36 @@ void SolarSensor::check_espnow_connection()
 
 bool SolarSensor::is_firmware_healthy(bool healthy)
 {
-    OtaVerifyResult verify = ota_controller_.verify_firmware_on_boot(healthy);
-    if (!verify.pending_verify) {
+    if (!ota_controller_.check_pending_verify()) {
         return true;
     }
 
-    if (verify.success) {
-        if (verify.version.has_value()) {
-            core_.fw_major = verify.version->major;
-            core_.fw_minor = verify.version->minor;
-            core_.fw_patch = verify.version->patch;
-        }
+    OtaActionResult result = ota_controller_.confirm_firmware(healthy);
+
+    send_ota_report(result.exec_result, result.error_code);
+
+    if (result.success) {
         pending_core_commit_ = true;
-        send_ota_report(verify.exec_result, verify.error_code);
         return true;
     }
-    else {
-        ESP_LOGE(
-            TAG, "Post-boot OTA verification failed! Delaying for report transmission then triggering rollback...");
-        led_.set_pattern(BlinkPattern::ERROR_BURST);
-        send_ota_report(verify.exec_result, verify.error_code);
-        hal_rtos_.task_delay(pdMS_TO_TICKS(500));
-        ota_controller_.rollback_and_reboot();
-        return false;
-    }
 
+    ESP_LOGE(TAG, "Post-boot OTA verification failed! Delaying and triggering rollback...");
+    led_.set_pattern(BlinkPattern::ERROR_BURST);
+    hal_rtos_.task_delay(pdMS_TO_TICKS(500));
+    ota_controller_.rollback_and_reboot();
     return false;
+}
+
+void SolarSensor::update_running_version()
+{
+    auto current_version = ota_controller_.get_running_version();
+    if (current_version.has_value()) {
+        if (core_.fw_major != current_version->major || core_.fw_minor != current_version->minor ||
+            core_.fw_patch != current_version->patch) {
+            core_.fw_major = current_version->major;
+            core_.fw_minor = current_version->minor;
+            core_.fw_patch = current_version->patch;
+            pending_core_commit_ = true; // Garante que a nova versão será gravada no NVS
+        }
+    }
 }

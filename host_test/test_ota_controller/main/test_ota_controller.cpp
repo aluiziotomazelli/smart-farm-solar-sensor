@@ -18,47 +18,77 @@ protected:
 
     std::unique_ptr<OtaController> sut_;
 
-    void SetUp() override
-    {
-        sut_ = std::make_unique<OtaController>(mock_ota_manager_, mock_freertos_);
-    }
+    void SetUp() override { sut_ = std::make_unique<OtaController>(mock_ota_manager_, mock_freertos_); }
 };
 
-TEST_F(OtaControllerTest, VerifyFirmwareOnBootNoPending)
+TEST_F(OtaControllerTest, CheckPendingVerifyReturnsTrue)
+{
+    EXPECT_CALL(mock_ota_manager_, check_pending_verify()).WillOnce(Return(true));
+    EXPECT_TRUE(sut_->check_pending_verify());
+}
+
+TEST_F(OtaControllerTest, CheckPendingVerifyReturnsFalse)
 {
     EXPECT_CALL(mock_ota_manager_, check_pending_verify()).WillOnce(Return(false));
-
-    OtaVerifyResult result = sut_->verify_firmware_on_boot(true);
-    EXPECT_FALSE(result.pending_verify);
+    EXPECT_FALSE(sut_->check_pending_verify());
 }
 
-TEST_F(OtaControllerTest, VerifyFirmwareOnBootHealthySuccess)
+TEST_F(OtaControllerTest, ConfirmFirmwareHealthySuccess)
 {
-    EXPECT_CALL(mock_ota_manager_, check_pending_verify()).WillOnce(Return(true));
     EXPECT_CALL(mock_ota_manager_, confirm_app_valid()).WillOnce(Return(true));
-    
-    OtaVersion ver{1, 2, 3};
-    EXPECT_CALL(mock_ota_manager_, get_running_version()).WillOnce(Return(ver));
 
-    OtaVerifyResult result = sut_->verify_firmware_on_boot(true);
-    EXPECT_TRUE(result.pending_verify);
+    OtaActionResult result = sut_->confirm_firmware(true);
     EXPECT_TRUE(result.success);
-    ASSERT_TRUE(result.version.has_value());
-    EXPECT_EQ(result.version->major, 1);
-    EXPECT_EQ(result.version->minor, 2);
-    EXPECT_EQ(result.version->patch, 3);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::CONFIRMED_SUCCESS);
+    EXPECT_EQ(result.error_code, farm::OtaErrorCode::NONE);
 }
 
-TEST_F(OtaControllerTest, VerifyFirmwareOnBootUnhealthyTriggersRollback)
+TEST_F(OtaControllerTest, ConfirmFirmwareUnhealthyTriggersRollback)
 {
-    EXPECT_CALL(mock_ota_manager_, check_pending_verify()).WillOnce(Return(true));
+    // When session is unhealthy, confirm_app_valid should NOT even be called
+    EXPECT_CALL(mock_ota_manager_, confirm_app_valid()).Times(0);
 
-    OtaVerifyResult result = sut_->verify_firmware_on_boot(false);
-    EXPECT_TRUE(result.pending_verify);
+    OtaActionResult result = sut_->confirm_firmware(false);
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::ROLLBACK_TRIGGERED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::HEALTH_CHECK_FAILED);
+}
+
+TEST_F(OtaControllerTest, ConfirmFirmwareHealthyPartitionConfirmFailed)
+{
+    EXPECT_CALL(mock_ota_manager_, confirm_app_valid()).WillOnce(Return(false));
+
+    OtaActionResult result = sut_->confirm_firmware(true);
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.exec_result, farm::OtaExecResult::ROLLBACK_TRIGGERED);
+    EXPECT_EQ(result.error_code, farm::OtaErrorCode::PARTITION_CONFIRM_FAILED);
+}
+
+TEST_F(OtaControllerTest, GetRunningVersionReturnsVersionWhenPresent)
+{
+    OtaVersion ver{1, 2, 3};
+    EXPECT_CALL(mock_ota_manager_, get_running_version()).WillOnce(Return(ver));
+
+    auto result = sut_->get_running_version();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->major, 1);
+    EXPECT_EQ(result->minor, 2);
+    EXPECT_EQ(result->patch, 3);
+}
+
+TEST_F(OtaControllerTest, GetRunningVersionReturnsNulloptWhenEmpty)
+{
+    EXPECT_CALL(mock_ota_manager_, get_running_version()).WillOnce(Return(std::nullopt));
+
+    auto result = sut_->get_running_version();
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(OtaControllerTest, InitDelegatesToManager)
+{
+    OtaConfig config{};
+    EXPECT_CALL(mock_ota_manager_, init(_)).WillOnce(Return(true));
+    EXPECT_TRUE(sut_->init(config));
 }
 
 TEST_F(OtaControllerTest, RollbackAndRebootDelegatesToManager)
@@ -71,7 +101,7 @@ TEST_F(OtaControllerTest, ExecuteDownloadStartOtaFail)
 {
     EXPECT_CALL(mock_ota_manager_, start_ota()).WillOnce(Return(false));
 
-    OtaVerifyResult result = sut_->execute_download();
+    OtaActionResult result = sut_->execute_download();
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::DOWNLOAD_FAILED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::DOWNLOAD_SESSION_FAIL);
@@ -82,7 +112,7 @@ TEST_F(OtaControllerTest, ExecuteDownloadSuccess)
     EXPECT_CALL(mock_ota_manager_, start_ota()).WillOnce(Return(true));
     EXPECT_CALL(mock_ota_manager_, get_status()).WillOnce(Return(OtaStatus::READY_TO_RESTART));
 
-    OtaVerifyResult result = sut_->execute_download();
+    OtaActionResult result = sut_->execute_download();
     EXPECT_TRUE(result.success);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::CONFIRMED_SUCCESS);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::NONE);
@@ -95,7 +125,7 @@ TEST_F(OtaControllerTest, ExecuteDownloadFailedStatus)
     EXPECT_CALL(mock_ota_manager_, get_last_error()).WillOnce(Return(OtaFailReason::HASH_MISMATCH));
     EXPECT_CALL(mock_ota_manager_, cancel_ota()).Times(1);
 
-    OtaVerifyResult result = sut_->execute_download();
+    OtaActionResult result = sut_->execute_download();
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::DOWNLOAD_FAILED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::IMAGE_HASH_MISMATCH);
@@ -107,7 +137,7 @@ TEST_F(OtaControllerTest, ExecuteDownloadTimeout)
     EXPECT_CALL(mock_ota_manager_, get_status()).WillRepeatedly(Return(OtaStatus::DOWNLOADING));
     EXPECT_CALL(mock_ota_manager_, cancel_ota()).Times(1);
 
-    OtaVerifyResult result = sut_->execute_download(1000); // 1s timeout
+    OtaActionResult result = sut_->execute_download(1000); // 1s timeout
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.exec_result, farm::OtaExecResult::DOWNLOAD_FAILED);
     EXPECT_EQ(result.error_code, farm::OtaErrorCode::WATCHDOG_TIMEOUT);
