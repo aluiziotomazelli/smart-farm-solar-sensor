@@ -17,7 +17,6 @@ list(APPEND EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/components/ota_manager"
     "${CMAKE_CURRENT_LIST_DIR}/components/time_manager"
     "${CMAKE_CURRENT_LIST_DIR}/components/ds18b20_driver"
-    "${CMAKE_CURRENT_LIST_DIR}/components/ds18b20_driver/external/onewire_bus/onewire_bus"
 )
 
 # Include the ESP-IDF framework
