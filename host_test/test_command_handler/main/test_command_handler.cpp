@@ -3,7 +3,8 @@
 #include <memory>
 
 #include "command_handler.hpp"
-#include "mock_espnow_manager.hpp"
+#include "farm_protocol_types.hpp"
+#include "mocks/mock_espnow_manager.hpp"
 #include "mock_time_manager.hpp"
 #include "mock_hal_freertos.hpp"
 
@@ -19,7 +20,6 @@ protected:
     NiceMock<espnow::MockEspNowManager> mock_espnow_;
     NiceMock<time_manager::MockTimeManager> mock_time_;
     NiceMock<idf_hals::MockHalFreertos> mock_freertos_;
-    CoreData core_{};
 
     std::unique_ptr<CommandHandler> sut_;
 
@@ -37,7 +37,6 @@ protected:
             rx_queue_,
             mock_espnow_,
             mock_time_,
-            core_,
             mock_freertos_);
     }
 
@@ -53,7 +52,7 @@ protected:
 TEST_F(CommandHandlerTest, ProcessDrainsEmptyQueue)
 {
     CommandProcessResult result = sut_->process();
-    EXPECT_FALSE(result.core_modified);
+    EXPECT_FALSE(result.time_synced);
     EXPECT_FALSE(result.ota_requested);
     EXPECT_FALSE(result.reboot_requested);
 }
@@ -73,7 +72,7 @@ TEST_F(CommandHandlerTest, ProcessStartOtaConfirmsAckAndReturnsOtaRequested)
 
     CommandProcessResult result = sut_->process();
     EXPECT_TRUE(result.ota_requested);
-    EXPECT_FALSE(result.core_modified);
+    EXPECT_FALSE(result.time_synced);
     EXPECT_FALSE(result.reboot_requested);
 }
 
@@ -92,11 +91,11 @@ TEST_F(CommandHandlerTest, ProcessRebootConfirmsAckAndReturnsRebootRequested)
 
     CommandProcessResult result = sut_->process();
     EXPECT_TRUE(result.reboot_requested);
-    EXPECT_FALSE(result.core_modified);
+    EXPECT_FALSE(result.time_synced);
     EXPECT_FALSE(result.ota_requested);
 }
 
-TEST_F(CommandHandlerTest, ProcessSyncTimeUpdatesTimeAndCoreState)
+TEST_F(CommandHandlerTest, ProcessSyncTimeUpdatesTimeAndReturnsTimeSynced)
 {
     espnow::AppMessage msg{};
     msg.sender_id = 0x01;
@@ -117,20 +116,16 @@ TEST_F(CommandHandlerTest, ProcessSyncTimeUpdatesTimeAndCoreState)
     ASSERT_EQ(xQueueSend(rx_queue_, &msg, 0), pdTRUE);
 
     EXPECT_CALL(mock_time_, sync_from_time_packet(_)).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_time_, is_synchronized()).WillOnce(Return(true));
-    EXPECT_CALL(mock_time_, get_timestamp_ms()).WillOnce(Return(1700000000000ULL));
     EXPECT_CALL(mock_espnow_, confirm_reception(0x01, 200, espnow::AckStatus::OK)).WillOnce(Return(ESP_OK));
 
     CommandProcessResult result = sut_->process();
 
-    EXPECT_TRUE(result.core_modified);
+    EXPECT_TRUE(result.time_synced);
     EXPECT_FALSE(result.ota_requested);
     EXPECT_FALSE(result.reboot_requested);
-    EXPECT_TRUE(core_.has_valid_time);
-    EXPECT_EQ(core_.last_sync_unix_time_ms, 1700000000000ULL);
 }
 
-TEST_F(CommandHandlerTest, ProcessFailedSyncTimeDoesNotSetCoreModified)
+TEST_F(CommandHandlerTest, ProcessFailedSyncTimeDoesNotSetTimeSynced)
 {
     espnow::AppMessage msg{};
     msg.sender_id = 0x01;
@@ -150,7 +145,7 @@ TEST_F(CommandHandlerTest, ProcessFailedSyncTimeDoesNotSetCoreModified)
 
     CommandProcessResult result = sut_->process();
 
-    EXPECT_FALSE(result.core_modified);
+    EXPECT_FALSE(result.time_synced);
     EXPECT_FALSE(result.ota_requested);
     EXPECT_FALSE(result.reboot_requested);
 }
@@ -179,12 +174,10 @@ TEST_F(CommandHandlerTest, ProcessMultipleCommandsAccumulatesResultFlags)
     ASSERT_EQ(xQueueSend(rx_queue_, &msg2, 0), pdTRUE);
 
     EXPECT_CALL(mock_time_, sync_from_time_packet(_)).WillOnce(Return(ESP_OK));
-    EXPECT_CALL(mock_time_, is_synchronized()).WillOnce(Return(true));
-    EXPECT_CALL(mock_time_, get_timestamp_ms()).WillOnce(Return(1700000000000ULL));
 
     CommandProcessResult result = sut_->process();
 
-    EXPECT_TRUE(result.core_modified);
+    EXPECT_TRUE(result.time_synced);
     EXPECT_TRUE(result.reboot_requested);
     EXPECT_FALSE(result.ota_requested);
 }
@@ -203,7 +196,7 @@ TEST_F(CommandHandlerTest, ProcessUnsupportedCommandRejectsWithInvalidData)
     EXPECT_CALL(mock_espnow_, confirm_reception(0x01, 300, espnow::AckStatus::ERROR_INVALID_DATA)).WillOnce(Return(ESP_OK));
 
     CommandProcessResult result = sut_->process();
-    EXPECT_FALSE(result.core_modified);
+    EXPECT_FALSE(result.time_synced);
     EXPECT_FALSE(result.ota_requested);
     EXPECT_FALSE(result.reboot_requested);
 }
@@ -222,7 +215,7 @@ TEST_F(CommandHandlerTest, ProcessNonCommandMessageRejectsWithInvalidData)
     EXPECT_CALL(mock_espnow_, confirm_reception(0x01, 400, espnow::AckStatus::ERROR_INVALID_DATA)).WillOnce(Return(ESP_OK));
 
     CommandProcessResult result = sut_->process();
-    EXPECT_FALSE(result.core_modified);
+    EXPECT_FALSE(result.time_synced);
     EXPECT_FALSE(result.ota_requested);
     EXPECT_FALSE(result.reboot_requested);
 }

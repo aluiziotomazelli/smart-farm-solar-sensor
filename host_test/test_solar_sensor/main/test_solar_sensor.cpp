@@ -5,7 +5,7 @@
 #include "solar_sensor.hpp"
 #include "mock_ina_sensor_task.hpp"
 #include "mock_slow_sensors_task.hpp"
-#include "mock_espnow_manager.hpp"
+#include "mocks/mock_espnow_manager.hpp"
 #include "mock_time_manager.hpp"
 #include "mock_persistence_backend.hpp"
 #include "nvs_core.hpp"
@@ -17,8 +17,11 @@
 #include "mock_hal_freertos.hpp"
 #include "mock_hal_gpio.hpp"
 #include "mock_hal_i2c.hpp"
-#include "mock_ota_manager.hpp"
+#include "mock_ota_controller.hpp"
 #include "mock_led_controller.hpp"
+#include "mocks/mock_i_wifi_manager.hpp"
+#include "mock_day_night_controller.hpp"
+#include "mock_command_handler.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -32,31 +35,6 @@ public:
     MOCK_METHOD(esp_err_t, arm, (IOtaTriggerListener& listener), (override));
     MOCK_METHOD(void, disarm, (), (override));
     MOCK_METHOD(void, notify, (), (override));
-};
-
-class MockWiFiManager : public wifi_manager::IWiFiManager
-{
-public:
-    MOCK_METHOD(esp_err_t, init, (const wifi_manager::Config& config), (override));
-    MOCK_METHOD(esp_err_t, deinit, (), (override));
-    MOCK_METHOD(esp_err_t, start, (uint32_t timeout_ms), (override));
-    MOCK_METHOD(esp_err_t, start, (), (override));
-    MOCK_METHOD(esp_err_t, stop, (uint32_t timeout_ms), (override));
-    MOCK_METHOD(esp_err_t, stop, (), (override));
-    MOCK_METHOD(esp_err_t, connect, (uint32_t timeout_ms), (override));
-    MOCK_METHOD(esp_err_t, connect, (), (override));
-    MOCK_METHOD(esp_err_t, disconnect, (uint32_t timeout_ms), (override));
-    MOCK_METHOD(esp_err_t, disconnect, (), (override));
-    MOCK_METHOD(wifi_manager::State, get_state, (), (const, override));
-    MOCK_METHOD(esp_err_t, add_credentials, (const std::string& ssid, const std::string& password), (override));
-    MOCK_METHOD(esp_err_t, set_credentials, (const std::string& ssid, const std::string& password), (override));
-    MOCK_METHOD(esp_err_t, get_credentials, (std::string& ssid, std::string& password), (override));
-    MOCK_METHOD(esp_err_t, clear_credentials, (), (override));
-    MOCK_METHOD(esp_err_t, factory_reset, (), (override));
-    MOCK_METHOD(bool, is_credentials_valid, (), (const, override));
-    MOCK_METHOD(TaskHandle_t, get_task_handle, (), (const, override));
-    MOCK_METHOD(esp_err_t, get_ap_info, (wifi_ap_record_t& info), (override));
-    MOCK_METHOD(esp_err_t, get_rssi, (int8_t& rssi), (override));
 };
 
 class SolarSensorTest : public ::testing::Test
@@ -76,13 +54,12 @@ protected:
     SolarSensorNvs solar_storage_{rtc_solar_backend_, nvs_solar_backend_};
 
     NiceMock<idf_hals::MockTimerHAL> hal_timer_;
-    NiceMock<MockOtaManager> ota_manager_;
-    OtaController ota_controller_{ota_manager_, hal_rtos_};
+    NiceMock<MockOtaController> ota_controller_;
     NiceMock<MockOtaTrigger> btn_trigger_;
     NiceMock<MockOtaTrigger> espnow_trigger_;
     NiceMock<espnow::MockEspNowManager> espnow_;
     QueueHandle_t rx_queue_ = reinterpret_cast<QueueHandle_t>(0x9999);
-    NiceMock<MockWiFiManager> wifi_;
+    NiceMock<wifi_manager::MockWiFiManager> wifi_;
     NiceMock<idf_hals::MockSleepHAL> hal_sleep_;
     NiceMock<idf_hals::MockSystemHAL> hal_system_;
     NiceMock<time_manager::MockTimeManager> time_manager_;
@@ -90,6 +67,8 @@ protected:
     NiceMock<idf_hals::MockGpioHAL> hal_gpio_;
     NiceMock<idf_hals::MockI2cHAL> hal_i2c_;
     NiceMock<MockLedController> led_;
+    NiceMock<MockDayNightController> day_night_;
+    NiceMock<MockCommandHandler> command_handler_;
 
     std::unique_ptr<SolarSensor> sut_;
 
@@ -107,9 +86,9 @@ protected:
         ON_CALL(mock_ina_task_, is_sampling_enabled()).WillByDefault(Return(true));
         ON_CALL(mock_ina_task_, is_reporting_enabled()).WillByDefault(Return(true));
         ON_CALL(mock_ina_task_, init(_, _)).WillByDefault(Return(ESP_OK));
-        ON_CALL(ota_manager_, init(_)).WillByDefault(Return(true));
-        ON_CALL(ota_manager_, check_pending_verify()).WillByDefault(Return(false));
-        ON_CALL(ota_manager_, confirm_app_valid()).WillByDefault(Return(true));
+        ON_CALL(ota_controller_, init(_)).WillByDefault(Return(true));
+        ON_CALL(ota_controller_, check_pending_verify()).WillByDefault(Return(false));
+        ON_CALL(ota_controller_, confirm_firmware(_)).WillByDefault(Return(OtaActionResult{.success = true}));
         ON_CALL(wifi_, init(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(wifi_, start(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(wifi_, add_credentials(_, _)).WillByDefault(Return(ESP_OK));
@@ -119,6 +98,8 @@ protected:
         ON_CALL(hal_gpio_, isr_handler_add(_, _, _)).WillByDefault(Return(ESP_OK));
         ON_CALL(led_, init()).WillByDefault(Return(ESP_OK));
         ON_CALL(led_, start()).WillByDefault(Return(ESP_OK));
+        ON_CALL(day_night_, should_enter_night_mode(_, _)).WillByDefault(Return(false));
+        ON_CALL(command_handler_, process()).WillByDefault(Return(CommandProcessResult{}));
 
         sut_ = std::make_unique<SolarSensor>(
             mock_ina_task_,
@@ -140,7 +121,9 @@ protected:
             hal_rtos_,
             hal_gpio_,
             hal_i2c_,
-            led_);
+            led_,
+            day_night_,
+            command_handler_);
     }
 };
 
@@ -181,14 +164,12 @@ TEST_F(SolarSensorTest, RunProcessesOtaTriggerWhenSet)
 
 TEST_F(SolarSensorTest, RunProcessesInaSamplesAndEntersNightSleepOnDusk)
 {
-    DayNightConfig cfg{};
-    cfg.hysteresis_sample_count = 1;
-    cfg.unsynced_hysteresis_sample_count = 1;
-    sut_->get_day_night_controller().set_config(cfg);
-
     InaSample sample{};
     sample.isc_current_ma = 0;
     sample.status = ESP_OK;
+
+    EXPECT_CALL(day_night_, should_enter_night_mode(0, _)).WillOnce(Return(true));
+    EXPECT_CALL(day_night_, calculate_night_sleep_time_us(_)).WillOnce(Return(3600000000ULL));
 
     EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _))
         .WillRepeatedly(Return(pdFALSE));
@@ -264,6 +245,8 @@ TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesM
     EXPECT_CALL(hal_sleep_, get_wakeup_cause()).WillRepeatedly(Return(ESP_SLEEP_WAKEUP_TIMER));
     EXPECT_CALL(time_manager_, is_synchronized()).WillRepeatedly(Return(true));
     EXPECT_CALL(time_manager_, get_timestamp_sec()).WillRepeatedly(Return(10800)); // 03:00 AM UTC
+    EXPECT_CALL(day_night_, classify_wake(false, 0, _)).WillOnce(Return(WakeType::CALIBRATION_TIMER));
+    EXPECT_CALL(day_night_, calculate_night_sleep_time_us(_)).WillOnce(Return(3600000000ULL));
 
     EXPECT_CALL(mock_ina_task_, prepare_for_sleep()).WillOnce(Return(ESP_OK));
     EXPECT_CALL(hal_sleep_, enable_timer_wakeup(_)).WillOnce(Return(ESP_OK));
@@ -275,49 +258,6 @@ TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesM
     // Sorted valid calibration samples (ignoring >100uV spikes 500uV and 1500uV): [-10, -4, -2, 0, 2, 5, 8]
     // Median of 7 valid samples (index 7/2 = 3) is 0 uV!
     EXPECT_EQ(sut_->get_solar_stats().shunt_zero_offset_uv, 0);
-}
-
-TEST_F(SolarSensorTest, CheckEspNowConnectionTriggersReconnectWhenIdleWithPeers)
-{
-    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
-    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
-
-    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::IDLE));
-
-    etl::vector<espnow::PeerInfo, espnow::MAX_PEERS> peers;
-    espnow::PeerInfo peer{};
-    peer.node_id = espnow::ReservedIds::HUB;
-    peers.push_back(peer);
-    EXPECT_CALL(espnow_, get_peers()).WillOnce(Return(peers));
-    EXPECT_CALL(espnow_, reconnect()).WillOnce(Return(ESP_OK));
-
-    EXPECT_TRUE(sut_->run());
-}
-
-TEST_F(SolarSensorTest, CheckEspNowConnectionTriggersPairingWhenIdleWithoutPeers)
-{
-    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
-    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
-
-    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::IDLE));
-
-    etl::vector<espnow::PeerInfo, espnow::MAX_PEERS> peers; // Empty
-    EXPECT_CALL(espnow_, get_peers()).WillOnce(Return(peers));
-    EXPECT_CALL(espnow_, start_pairing(30000)).WillOnce(Return(ESP_OK));
-
-    EXPECT_TRUE(sut_->run());
-}
-
-TEST_F(SolarSensorTest, CheckEspNowConnectionDoesNothingWhenOperational)
-{
-    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
-    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillRepeatedly(Return(pdFALSE));
-
-    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::OPERATIONAL));
-    EXPECT_CALL(espnow_, reconnect()).Times(0);
-    EXPECT_CALL(espnow_, start_pairing(_)).Times(0);
-
-    EXPECT_TRUE(sut_->run());
 }
 
 TEST_F(SolarSensorTest, InitSuccessSetsBootSuccessLedPattern)
@@ -335,4 +275,38 @@ TEST_F(SolarSensorTest, InitFailureSetsErrorBurstLedPattern)
     EXPECT_CALL(led_, set_pattern(BlinkPattern::ERROR_BURST)).Times(1);
 
     EXPECT_EQ(sut_->init(), ESP_FAIL);
+}
+
+TEST_F(SolarSensorTest, RunDispatchesRebootCommandFromHandler)
+{
+    EXPECT_CALL(command_handler_, process())
+        .WillOnce(Return(CommandProcessResult{.reboot_requested = true}));
+    EXPECT_CALL(wifi_, disconnect(_)).Times(1);
+    EXPECT_CALL(espnow_, deinit()).Times(1);
+    EXPECT_CALL(hal_system_, restart()).Times(1);
+
+    EXPECT_FALSE(sut_->run());
+}
+
+TEST_F(SolarSensorTest, RunDispatchesTimeSyncedCommandFromHandler)
+{
+    InaSample sample{};
+    sample.isc_current_ma = 100;
+    sample.status = ESP_OK;
+
+    EXPECT_CALL(command_handler_, process())
+        .WillOnce(Return(CommandProcessResult{.time_synced = true}));
+    EXPECT_CALL(time_manager_, is_synchronized()).WillRepeatedly(Return(true));
+    EXPECT_CALL(time_manager_, get_timestamp_ms()).WillRepeatedly(Return(1767225600000ULL));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
+        .WillOnce(::testing::Invoke([sample](QueueHandle_t, void* data, TickType_t) {
+            if (data) {
+                *reinterpret_cast<InaSample*>(data) = sample;
+            }
+            return pdTRUE;
+        }))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_TRUE(sut_->run());
 }

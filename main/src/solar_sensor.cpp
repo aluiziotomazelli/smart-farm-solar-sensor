@@ -14,7 +14,6 @@
 static const char* TAG = "SolarSensor";
 
 static constexpr uint16_t DEEP_SLEEP_TIME_MIN = 60;
-static constexpr uint32_t IDLE_RECONNECT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 // ============== INA226 Config ==============
 // The daytime regime is the default and lives in the Ina226Driver construction
@@ -23,7 +22,7 @@ static constexpr uint32_t IDLE_RECONNECT_INTERVAL_MS = 5 * 60 * 1000; // 5 minut
 static constexpr InaSensorConfig ina_config = {
     .delta_threshold_ma = 10,
     .delta_threshold_percent = 0.03f,
-    .heartbeat_interval_ms = 1000,
+    .heartbeat_interval_ms = 5000,
     .night_config =
         {
             .vsh_ct = ina226::ConversionTime::CT_8244US,
@@ -40,7 +39,7 @@ SolarSensor::SolarSensor(
     INvsCore& core_storage,
     ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
-    OtaController& ota_controller,
+    IOtaController& ota_controller,
     IOtaTrigger& btn_trigger,
     IOtaTrigger& espnow_trigger,
     espnow::IEspNowManager& espnow,
@@ -52,7 +51,9 @@ SolarSensor::SolarSensor(
     idf_hals::IHalFreertos& hal_freertos,
     idf_hals::IGpioHAL& hal_gpio,
     idf_hals::II2cHAL& hal_i2c,
-    ILedController& led)
+    ILedController& led,
+    IDayNightController& day_night_controller,
+    ICommandHandler& command_handler)
     : ina_sensor_task_(ina_sensor_task)
     , ina_sample_queue_(ina_sample_queue)
     , telemetry_snapshot_(telemetry_snapshot)
@@ -73,7 +74,8 @@ SolarSensor::SolarSensor(
     , hal_gpio_(hal_gpio)
     , hal_i2c_(hal_i2c)
     , led_(led)
-    , command_handler_(rx_queue_, espnow_, time_manager_, core_, hal_rtos_)
+    , day_night_controller_(day_night_controller)
+    , command_handler_(command_handler)
 {
 }
 
@@ -206,12 +208,11 @@ bool SolarSensor::run_day_cycle()
 {
     ESP_LOGD(TAG, "SolarSensor running day cycle");
 
-    // 1. Check ESP-NOW connection and auto-reconnect if stuck in IDLE
-    check_espnow_connection();
-
-    // 2. Process pending ESP-NOW commands
+    // 1. Process pending ESP-NOW commands
     CommandProcessResult cmd_res = command_handler_.process();
-    handle_command_process_result(cmd_res);
+    if (!handle_command_process_result(cmd_res)) {
+        return false;
+    }
 
     // 3. Process pending OTA triggers
     if (ota_triggered_) {
@@ -319,15 +320,12 @@ esp_err_t SolarSensor::init_espnow()
     config.node_type = static_cast<espnow::NodeType>(farm::NodeType::SENSOR);
     config.app_rx_queue = rx_queue_;
     config.wifi_channel = 1;
-    config.heartbeat_interval_ms = 0; // TODO: verify apropriate value for heartbeat
+    config.heartbeat_interval_ms = 30000; // 30s contract with Hub (offline after 90s silence)
+    config.enable_heartbeat = false;      // Periodic telemetry acts as keepalive
+    config.logical_ack_retries = 2;
+    config.ack_timeout_ms = 350;
 
-    esp_err_t err;
-    if ((err = espnow_.init(config)) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize EspNowManager: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    return ESP_OK;
+    return espnow_.init(config);
 }
 
 static constexpr uint32_t NVS_PERIODIC_COMMIT_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
@@ -935,9 +933,11 @@ esp_err_t SolarSensor::send_night_transition_report(bool requires_ack)
         requires_ack);
 }
 
-void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_res)
+bool SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_res)
 {
-    if (cmd_res.core_modified) {
+    if (cmd_res.time_synced) {
+        core_.has_valid_time = time_manager_.is_synchronized();
+        core_.last_sync_unix_time_ms = time_manager_.get_timestamp_ms();
         pending_core_commit_ = true;
     }
 
@@ -949,7 +949,7 @@ void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_
 
     if (cmd_res.ota_requested) {
         process_pending_ota();
-        return;
+        return false;
     }
 
     if (cmd_res.reboot_requested) {
@@ -960,36 +960,10 @@ void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_
         wifi_.disconnect(2000);
         espnow_.deinit();
         hal_system_.restart();
-        return;
+        return false;
     }
-}
 
-void SolarSensor::check_espnow_connection()
-{
-    espnow::NodeState state = espnow_.get_node_state();
-    if (state == espnow::NodeState::IDLE) {
-        int64_t now_ms = hal_timer_.get_time_us() / 1000;
-        if (last_idle_reconnect_ts_ms_ == 0 || (now_ms - last_idle_reconnect_ts_ms_) >= IDLE_RECONNECT_INTERVAL_MS) {
-            last_idle_reconnect_ts_ms_ = now_ms;
-            auto peers = espnow_.get_peers();
-            if (!peers.empty()) {
-                ESP_LOGW(TAG, "EspNow in IDLE with known Hub. Triggering reconnect scan...");
-                led_.set_pattern(BlinkPattern::IDLE_BEACON);
-                espnow_.reconnect();
-            }
-            else {
-                ESP_LOGW(TAG, "EspNow in IDLE without peers (unpaired node). Starting pairing mode...");
-                led_.set_pattern(BlinkPattern::PAIRING_MODE);
-                espnow_.start_pairing(30000);
-            }
-        }
-    }
-    else if (state == espnow::NodeState::OPERATIONAL) {
-        BlinkPattern pat = led_.get_current_pattern();
-        if (pat == BlinkPattern::IDLE_BEACON || pat == BlinkPattern::PAIRING_MODE) {
-            led_.set_pattern(BlinkPattern::OFF);
-        }
-    }
+    return true;
 }
 
 bool SolarSensor::is_firmware_healthy(bool healthy)

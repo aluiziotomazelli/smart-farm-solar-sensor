@@ -3,7 +3,7 @@
 
 #include "ina_sensor_task.hpp"
 #include "mock_ina226_driver.hpp"
-#include "mock_espnow_manager.hpp"
+#include "mocks/mock_espnow_manager.hpp"
 #include "mock_hal_timer.hpp"
 #include "mock_hal_freertos.hpp"
 #include "mock_time_manager.hpp"

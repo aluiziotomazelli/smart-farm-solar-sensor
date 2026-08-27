@@ -2,6 +2,21 @@
 
 All notable changes to the `smart-farm-solar-sensor` project will be documented in this file.
 
+## [0.1.4] - 2026-08-26
+
+### Added
+- Extracted `IDayNightController` interface (`main/include/interfaces/i_day_night_controller.hpp`) and created `MockDayNightController` for isolated host unit testing.
+- Extracted `IOtaController` interface (`main/include/interfaces/i_ota_controller.hpp`) matching the node standard established in `pump-controller`, creating `MockOtaController`.
+- Extracted `ICommandHandler` interface (`main/include/interfaces/i_command_handler.hpp`) and created `MockCommandHandler`.
+- Injected `IDayNightController`, `IOtaController`, and `ICommandHandler` into `SolarSensor` via Constructor Dependency Injection, achieving 100% DI compliance across all external dependencies.
+
+### Changed
+- Integrated `SunSchedule` from `smart-farm-common` into `DayNightController`, delegating astronomical calculations and removing redundant latitude and timezone fields from `DayNightConfig`.
+- Decoupled `CommandHandler` from `CoreData`, centralizing core storage state updates (`SYNC_TIME`) within `SolarSensor::handle_command_process_result()`.
+- Simplified `test_solar_sensor` test fixtures by leveraging pure interface mocks (`MockOtaController`, `MockDayNightController`, `MockCommandHandler`), eliminating coupling to underlying FreeRTOS byte streams.
+- Cleaned up obsolete local mock headers in favor of shared mocks from `smart-farm-common` and `espnow_manager`.
+- Bumped firmware version to `0.1.4`.
+
 ## [0.1.3] - 2026-08-17
 
 ### Changed

@@ -17,6 +17,7 @@ time_t make_test_time(uint16_t day_of_year, uint8_t hour, uint8_t minute)
 class DayNightControllerTest : public ::testing::Test
 {
 protected:
+    SunSchedule sun_schedule_{DEFAULT_LATITUDE_DEG, 0.0f}; // UTC in tests for direct hour/minute matching
     DayNightConfig config_{};
     std::unique_ptr<DayNightController> sut_;
 
@@ -28,22 +29,10 @@ protected:
         config_.fallback_sleep_sec = DEFAULT_FALLBACK_NIGHT_SLEEP_SEC;
         config_.hysteresis_sample_count = 3; // Reduced for fast unit testing
         config_.unsynced_hysteresis_sample_count = 3; // Reduced for fast unit testing
-        config_.latitude_deg = DEFAULT_LATITUDE_DEG; // -20.2074
-        config_.tz_offset_hours = 0.0f; // UTC in tests for direct hour/minute matching
 
-        sut_ = std::make_unique<DayNightController>(config_);
+        sut_ = std::make_unique<DayNightController>(sun_schedule_, config_);
     }
 };
-
-TEST_F(DayNightControllerTest, CalculateSolarDayEquinox)
-{
-    // Day 81 (~March 22, Equinox): Day length near 12 hours everywhere
-    SolarDayInfo info = sut_->calculate_solar_day(81);
-
-    EXPECT_NEAR(info.day_length_hours, 12.0f, 0.5f);
-    EXPECT_NEAR(info.sunrise_hour_local, 6.0f, 0.5f);
-    EXPECT_NEAR(info.sunset_hour_local, 18.0f, 0.5f);
-}
 
 TEST_F(DayNightControllerTest, ShouldEnterNightModeUnsyncedRequiresHysteresis)
 {
