@@ -17,7 +17,7 @@
 #include "mock_hal_freertos.hpp"
 #include "mock_hal_gpio.hpp"
 #include "mock_hal_i2c.hpp"
-#include "mock_ota_manager.hpp"
+#include "mock_ota_controller.hpp"
 #include "mock_led_controller.hpp"
 #include "mocks/mock_i_wifi_manager.hpp"
 #include "mock_day_night_controller.hpp"
@@ -53,8 +53,7 @@ protected:
     SolarSensorNvs solar_storage_{rtc_solar_backend_, nvs_solar_backend_};
 
     NiceMock<idf_hals::MockTimerHAL> hal_timer_;
-    NiceMock<MockOtaManager> ota_manager_;
-    OtaController ota_controller_{ota_manager_, hal_rtos_};
+    NiceMock<MockOtaController> ota_controller_;
     NiceMock<MockOtaTrigger> btn_trigger_;
     NiceMock<MockOtaTrigger> espnow_trigger_;
     NiceMock<espnow::MockEspNowManager> espnow_;
@@ -85,9 +84,9 @@ protected:
         ON_CALL(mock_ina_task_, is_sampling_enabled()).WillByDefault(Return(true));
         ON_CALL(mock_ina_task_, is_reporting_enabled()).WillByDefault(Return(true));
         ON_CALL(mock_ina_task_, init(_, _)).WillByDefault(Return(ESP_OK));
-        ON_CALL(ota_manager_, init(_)).WillByDefault(Return(true));
-        ON_CALL(ota_manager_, check_pending_verify()).WillByDefault(Return(false));
-        ON_CALL(ota_manager_, confirm_app_valid()).WillByDefault(Return(true));
+        ON_CALL(ota_controller_, init(_)).WillByDefault(Return(true));
+        ON_CALL(ota_controller_, check_pending_verify()).WillByDefault(Return(false));
+        ON_CALL(ota_controller_, confirm_firmware(_)).WillByDefault(Return(OtaActionResult{.success = true}));
         ON_CALL(wifi_, init(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(wifi_, start(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(wifi_, add_credentials(_, _)).WillByDefault(Return(ESP_OK));

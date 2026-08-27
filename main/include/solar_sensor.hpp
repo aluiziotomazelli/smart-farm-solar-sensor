@@ -20,7 +20,7 @@
 #include "interfaces/i_slow_sensors_task.hpp"
 #include "command_handler.hpp"
 #include "day_night_controller.hpp"
-#include "ota_controller.hpp"
+#include "interfaces/i_ota_controller.hpp"
 
 #include "solar_sensor_stats.hpp"
 #include "telemetry_snapshot.hpp"
@@ -40,7 +40,7 @@ public:
         INvsCore& core_storage,
         ISolarSensorNvs& solar_storage,
         idf_hals::ITimerHAL& hal_timer,
-        OtaController& ota_controller,
+        IOtaController& ota_controller,
         IOtaTrigger& btn_trigger,
         IOtaTrigger& espnow_trigger,
         espnow::IEspNowManager& espnow,
@@ -88,7 +88,7 @@ private:
     INvsCore& core_storage_;
     ISolarSensorNvs& solar_storage_;
     idf_hals::ITimerHAL& hal_timer_;
-    OtaController& ota_controller_;
+    IOtaController& ota_controller_;
     IOtaTrigger& btn_trigger_;
     IOtaTrigger& espnow_trigger_;
     espnow::IEspNowManager& espnow_;

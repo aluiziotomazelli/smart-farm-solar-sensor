@@ -37,9 +37,6 @@ public:
         const SunSchedule& sun_schedule,
         const DayNightConfig& config = {});
 
-    /** @copydoc IDayNightController::calculate_solar_day */
-    SolarDayInfo calculate_solar_day(uint16_t day_of_year) const override;
-
     /** @copydoc IDayNightController::should_enter_night_mode */
     bool should_enter_night_mode(
         uint16_t current_ma,

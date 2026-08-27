@@ -15,5 +15,4 @@ public:
         (const, override));
     MOCK_METHOD(uint64_t, calculate_night_sleep_time_us, (std::optional<time_t> unix_time), (const, override));
     MOCK_METHOD(void, reset_hysteresis, (), (override));
-    MOCK_METHOD(SolarDayInfo, calculate_solar_day, (uint16_t day_of_year), (const, override));
 };

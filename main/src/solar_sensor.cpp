@@ -39,7 +39,7 @@ SolarSensor::SolarSensor(
     INvsCore& core_storage,
     ISolarSensorNvs& solar_storage,
     idf_hals::ITimerHAL& hal_timer,
-    OtaController& ota_controller,
+    IOtaController& ota_controller,
     IOtaTrigger& btn_trigger,
     IOtaTrigger& espnow_trigger,
     espnow::IEspNowManager& espnow,

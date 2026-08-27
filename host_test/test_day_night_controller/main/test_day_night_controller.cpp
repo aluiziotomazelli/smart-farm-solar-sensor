@@ -34,16 +34,6 @@ protected:
     }
 };
 
-TEST_F(DayNightControllerTest, CalculateSolarDayEquinox)
-{
-    // Day 81 (~March 22, Equinox): Day length near 12 hours everywhere
-    SolarDayInfo info = sut_->calculate_solar_day(81);
-
-    EXPECT_NEAR(info.day_length_hours, 12.0f, 0.5f);
-    EXPECT_NEAR(info.sunrise_hour_local, 6.0f, 0.5f);
-    EXPECT_NEAR(info.sunset_hour_local, 18.0f, 0.5f);
-}
-
 TEST_F(DayNightControllerTest, ShouldEnterNightModeUnsyncedRequiresHysteresis)
 {
     // Unsynced clock: depends only on current < dusk threshold (1 mA) with unsynced hysteresis

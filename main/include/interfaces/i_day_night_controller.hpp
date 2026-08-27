@@ -62,11 +62,4 @@ public:
      * @brief Resets hysteresis counter for dusk detection.
      */
     virtual void reset_hysteresis() = 0;
-
-    /**
-     * @brief Computes solar day info (day length, sunrise hour, sunset hour) for a given day of year.
-     * @param day_of_year Day of year (1-365).
-     * @return SolarDayInfo struct.
-     */
-    virtual SolarDayInfo calculate_solar_day(uint16_t day_of_year) const = 0;
 };

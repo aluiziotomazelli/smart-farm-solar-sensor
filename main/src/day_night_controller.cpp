@@ -9,11 +9,6 @@ DayNightController::DayNightController(
 {
 }
 
-SolarDayInfo DayNightController::calculate_solar_day(uint16_t day_of_year) const
-{
-    return SunSchedule::calculate_solar_day(day_of_year, sun_schedule_.get_latitude_deg());
-}
-
 DayNightController::LocalTime DayNightController::decompose(time_t unix_time) const
 {
     int64_t offset_sec = static_cast<int64_t>(sun_schedule_.get_tz_offset_hours() * 3600.0f);
