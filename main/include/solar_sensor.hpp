@@ -106,7 +106,6 @@ private:
     std::atomic<bool> ota_triggered_{false};
     bool wake_classified_ = false;
     int64_t last_nvs_commit_ts_ = 0;
-    int64_t last_idle_reconnect_ts_ms_ = 0;
     uint8_t consecutive_ina_errors_ = 0;
     uint64_t yield_umah_accumulator_ = 0;
     i2c_master_bus_handle_t i2c_bus_handle_;
@@ -139,7 +138,6 @@ private:
     void enter_deep_sleep();
     esp_err_t send_night_transition_report(bool requires_ack);
     void handle_command_process_result(const CommandProcessResult& cmd_res);
-    void check_espnow_connection();
 
     esp_err_t init_ina_alert_pin();
     static void IRAM_ATTR ina_alert_isr_handler(void* arg);

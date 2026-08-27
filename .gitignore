@@ -17,6 +17,7 @@ host_test/**/coverage/
 .cache/
 *.code-workspace
 .agents/
+.clangd
 
 # OS
 .DS_Store

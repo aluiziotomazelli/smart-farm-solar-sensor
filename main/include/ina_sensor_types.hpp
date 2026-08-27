@@ -51,7 +51,7 @@ struct InaSensorConfig
 {
     uint16_t delta_threshold_ma = 10;      ///< Absolute current delta threshold in mA
     float delta_threshold_percent = 0.03f; ///< Relative current delta threshold (3%)
-    uint16_t heartbeat_interval_ms = 1000; ///< Heartbeat report interval in ms
+    uint16_t heartbeat_interval_ms = 5000; ///< Heartbeat report interval in ms (5s)
     bool enable_ema_filter = true;         ///< Enables Exponential Moving Average (EMA) filtering on raw current
     float ema_alpha = 0.8f;          ///< EMA smoothing factor (0.0f = static, 1.0f = raw current, 0.8f = fast response)
     uint32_t task_stack_size = 4096; ///< FreeRTOS task stack size in bytes

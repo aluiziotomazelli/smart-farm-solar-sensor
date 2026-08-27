@@ -3,7 +3,7 @@
 #include <memory>
 
 #include "command_handler.hpp"
-#include "mock_espnow_manager.hpp"
+#include "mocks/mock_espnow_manager.hpp"
 #include "mock_time_manager.hpp"
 #include "mock_hal_freertos.hpp"
 
