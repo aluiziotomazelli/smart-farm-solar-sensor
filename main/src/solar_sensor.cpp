@@ -51,7 +51,8 @@ SolarSensor::SolarSensor(
     idf_hals::IHalFreertos& hal_freertos,
     idf_hals::IGpioHAL& hal_gpio,
     idf_hals::II2cHAL& hal_i2c,
-    ILedController& led)
+    ILedController& led,
+    IDayNightController& day_night_controller)
     : ina_sensor_task_(ina_sensor_task)
     , ina_sample_queue_(ina_sample_queue)
     , telemetry_snapshot_(telemetry_snapshot)
@@ -72,6 +73,7 @@ SolarSensor::SolarSensor(
     , hal_gpio_(hal_gpio)
     , hal_i2c_(hal_i2c)
     , led_(led)
+    , day_night_controller_(day_night_controller)
     , command_handler_(rx_queue_, espnow_, time_manager_, core_, hal_rtos_)
 {
 }

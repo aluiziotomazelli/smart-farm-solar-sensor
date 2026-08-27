@@ -39,6 +39,8 @@
 #include "slow_sensors_task.hpp"
 #include "telemetry_snapshot.hpp"
 #include "led_controller.hpp"
+#include "sun_schedule.hpp"
+#include "day_night_controller.hpp"
 
 #include "secrets.hpp"
 
@@ -160,6 +162,9 @@ static LedController led_controller{hal_gpio, hal_freertos, led_config};
 
 static time_manager::TimeManager time_mgr{hal_sntp, hal_sys_time};
 
+static SunSchedule sun_schedule{DEFAULT_LATITUDE_DEG, DEFAULT_TIMEZONE_OFFSET_HOURS};
+static DayNightController day_night_controller{sun_schedule};
+
 extern "C" void app_main()
 {
     ESP_LOGW(TAG, "Initializing Smart Farm Solar Sensor...");
@@ -197,7 +202,8 @@ extern "C" void app_main()
         hal_freertos,
         hal_gpio,
         hal_i2c,
-        led_controller);
+        led_controller,
+        day_night_controller);
 
     // Initialize application state
     solar.init();

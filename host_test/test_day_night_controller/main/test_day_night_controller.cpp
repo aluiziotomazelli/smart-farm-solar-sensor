@@ -17,6 +17,7 @@ time_t make_test_time(uint16_t day_of_year, uint8_t hour, uint8_t minute)
 class DayNightControllerTest : public ::testing::Test
 {
 protected:
+    SunSchedule sun_schedule_{DEFAULT_LATITUDE_DEG, 0.0f}; // UTC in tests for direct hour/minute matching
     DayNightConfig config_{};
     std::unique_ptr<DayNightController> sut_;
 
@@ -28,10 +29,8 @@ protected:
         config_.fallback_sleep_sec = DEFAULT_FALLBACK_NIGHT_SLEEP_SEC;
         config_.hysteresis_sample_count = 3; // Reduced for fast unit testing
         config_.unsynced_hysteresis_sample_count = 3; // Reduced for fast unit testing
-        config_.latitude_deg = DEFAULT_LATITUDE_DEG; // -20.2074
-        config_.tz_offset_hours = 0.0f; // UTC in tests for direct hour/minute matching
 
-        sut_ = std::make_unique<DayNightController>(config_);
+        sut_ = std::make_unique<DayNightController>(sun_schedule_, config_);
     }
 };
 

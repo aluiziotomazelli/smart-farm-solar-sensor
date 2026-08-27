@@ -52,7 +52,8 @@ public:
         idf_hals::IHalFreertos& hal_freertos,
         idf_hals::IGpioHAL& hal_gpio,
         idf_hals::II2cHAL& hal_i2c,
-        ILedController& led);
+        ILedController& led,
+        IDayNightController& day_night_controller);
 
     virtual ~SolarSensor() = default;
 
@@ -68,7 +69,7 @@ public:
     void on_ota_triggered(OtaTriggerSource source) override;
 
     CommandHandler& get_command_handler() { return command_handler_; }
-    DayNightController& get_day_night_controller() { return day_night_controller_; }
+    IDayNightController& get_day_night_controller() { return day_night_controller_; }
     const SolarStats& get_solar_stats() const { return stats_; }
 
 protected:
@@ -100,8 +101,8 @@ private:
     idf_hals::IGpioHAL& hal_gpio_;
     idf_hals::II2cHAL& hal_i2c_;
     ILedController& led_;
+    IDayNightController& day_night_controller_;
     CommandHandler command_handler_;
-    DayNightController day_night_controller_;
 
     std::atomic<bool> ota_triggered_{false};
     bool wake_classified_ = false;

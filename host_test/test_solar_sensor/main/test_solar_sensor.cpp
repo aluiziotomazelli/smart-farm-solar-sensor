@@ -20,6 +20,7 @@
 #include "mock_ota_manager.hpp"
 #include "mock_led_controller.hpp"
 #include "mocks/mock_i_wifi_manager.hpp"
+#include "mock_day_night_controller.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -66,6 +67,7 @@ protected:
     NiceMock<idf_hals::MockGpioHAL> hal_gpio_;
     NiceMock<idf_hals::MockI2cHAL> hal_i2c_;
     NiceMock<MockLedController> led_;
+    NiceMock<MockDayNightController> day_night_;
 
     std::unique_ptr<SolarSensor> sut_;
 
@@ -95,6 +97,7 @@ protected:
         ON_CALL(hal_gpio_, isr_handler_add(_, _, _)).WillByDefault(Return(ESP_OK));
         ON_CALL(led_, init()).WillByDefault(Return(ESP_OK));
         ON_CALL(led_, start()).WillByDefault(Return(ESP_OK));
+        ON_CALL(day_night_, should_enter_night_mode(_, _)).WillByDefault(Return(false));
 
         sut_ = std::make_unique<SolarSensor>(
             mock_ina_task_,
@@ -116,7 +119,8 @@ protected:
             hal_rtos_,
             hal_gpio_,
             hal_i2c_,
-            led_);
+            led_,
+            day_night_);
     }
 };
 
@@ -157,14 +161,12 @@ TEST_F(SolarSensorTest, RunProcessesOtaTriggerWhenSet)
 
 TEST_F(SolarSensorTest, RunProcessesInaSamplesAndEntersNightSleepOnDusk)
 {
-    DayNightConfig cfg{};
-    cfg.hysteresis_sample_count = 1;
-    cfg.unsynced_hysteresis_sample_count = 1;
-    sut_->get_day_night_controller().set_config(cfg);
-
     InaSample sample{};
     sample.isc_current_ma = 0;
     sample.status = ESP_OK;
+
+    EXPECT_CALL(day_night_, should_enter_night_mode(0, _)).WillOnce(Return(true));
+    EXPECT_CALL(day_night_, calculate_night_sleep_time_us(_)).WillOnce(Return(3600000000ULL));
 
     EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _))
         .WillRepeatedly(Return(pdFALSE));
@@ -240,6 +242,8 @@ TEST_F(SolarSensorTest, ProcessNightCalibrationRejectsLightningSpikesAndAppliesM
     EXPECT_CALL(hal_sleep_, get_wakeup_cause()).WillRepeatedly(Return(ESP_SLEEP_WAKEUP_TIMER));
     EXPECT_CALL(time_manager_, is_synchronized()).WillRepeatedly(Return(true));
     EXPECT_CALL(time_manager_, get_timestamp_sec()).WillRepeatedly(Return(10800)); // 03:00 AM UTC
+    EXPECT_CALL(day_night_, classify_wake(false, 0, _)).WillOnce(Return(WakeType::CALIBRATION_TIMER));
+    EXPECT_CALL(day_night_, calculate_night_sleep_time_us(_)).WillOnce(Return(3600000000ULL));
 
     EXPECT_CALL(mock_ina_task_, prepare_for_sleep()).WillOnce(Return(ESP_OK));
     EXPECT_CALL(hal_sleep_, enable_timer_wakeup(_)).WillOnce(Return(ESP_OK));
