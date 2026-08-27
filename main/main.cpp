@@ -41,6 +41,7 @@
 #include "led_controller.hpp"
 #include "sun_schedule.hpp"
 #include "day_night_controller.hpp"
+#include "command_handler.hpp"
 
 #include "secrets.hpp"
 
@@ -181,6 +182,9 @@ extern "C" void app_main()
     ina::InaSensorTask ina_task{
         ina_driver, espnow, hal_timer, hal_freertos, time_mgr, g_telemetry_snapshot, ina_sample_queue};
 
+    // Instantiate CommandHandler
+    CommandHandler command_handler{rx_queue, espnow, time_mgr, hal_freertos};
+
     // Instantiate app with dependencies
     SolarSensor solar(
         ina_task,
@@ -203,7 +207,8 @@ extern "C" void app_main()
         hal_gpio,
         hal_i2c,
         led_controller,
-        day_night_controller);
+        day_night_controller,
+        command_handler);
 
     // Initialize application state
     solar.init();

@@ -52,7 +52,8 @@ SolarSensor::SolarSensor(
     idf_hals::IGpioHAL& hal_gpio,
     idf_hals::II2cHAL& hal_i2c,
     ILedController& led,
-    IDayNightController& day_night_controller)
+    IDayNightController& day_night_controller,
+    ICommandHandler& command_handler)
     : ina_sensor_task_(ina_sensor_task)
     , ina_sample_queue_(ina_sample_queue)
     , telemetry_snapshot_(telemetry_snapshot)
@@ -74,7 +75,7 @@ SolarSensor::SolarSensor(
     , hal_i2c_(hal_i2c)
     , led_(led)
     , day_night_controller_(day_night_controller)
-    , command_handler_(rx_queue_, espnow_, time_manager_, core_, hal_rtos_)
+    , command_handler_(command_handler)
 {
 }
 
@@ -209,7 +210,9 @@ bool SolarSensor::run_day_cycle()
 
     // 1. Process pending ESP-NOW commands
     CommandProcessResult cmd_res = command_handler_.process();
-    handle_command_process_result(cmd_res);
+    if (!handle_command_process_result(cmd_res)) {
+        return false;
+    }
 
     // 3. Process pending OTA triggers
     if (ota_triggered_) {
@@ -930,9 +933,11 @@ esp_err_t SolarSensor::send_night_transition_report(bool requires_ack)
         requires_ack);
 }
 
-void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_res)
+bool SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_res)
 {
-    if (cmd_res.core_modified) {
+    if (cmd_res.time_synced) {
+        core_.has_valid_time = time_manager_.is_synchronized();
+        core_.last_sync_unix_time_ms = time_manager_.get_timestamp_ms();
         pending_core_commit_ = true;
     }
 
@@ -944,7 +949,7 @@ void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_
 
     if (cmd_res.ota_requested) {
         process_pending_ota();
-        return;
+        return false;
     }
 
     if (cmd_res.reboot_requested) {
@@ -955,8 +960,10 @@ void SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_
         wifi_.disconnect(2000);
         espnow_.deinit();
         hal_system_.restart();
-        return;
+        return false;
     }
+
+    return true;
 }
 
 bool SolarSensor::is_firmware_healthy(bool healthy)

@@ -18,7 +18,7 @@
 
 #include "interfaces/i_ina_sensor_task.hpp"
 #include "interfaces/i_slow_sensors_task.hpp"
-#include "command_handler.hpp"
+#include "interfaces/i_command_handler.hpp"
 #include "day_night_controller.hpp"
 #include "interfaces/i_ota_controller.hpp"
 
@@ -53,7 +53,8 @@ public:
         idf_hals::IGpioHAL& hal_gpio,
         idf_hals::II2cHAL& hal_i2c,
         ILedController& led,
-        IDayNightController& day_night_controller);
+        IDayNightController& day_night_controller,
+        ICommandHandler& command_handler);
 
     virtual ~SolarSensor() = default;
 
@@ -68,7 +69,7 @@ public:
     /** @copydoc IOtaTriggerListener::on_ota_triggered */
     void on_ota_triggered(OtaTriggerSource source) override;
 
-    CommandHandler& get_command_handler() { return command_handler_; }
+    ICommandHandler& get_command_handler() { return command_handler_; }
     IDayNightController& get_day_night_controller() { return day_night_controller_; }
     const SolarStats& get_solar_stats() const { return stats_; }
 
@@ -102,7 +103,7 @@ private:
     idf_hals::II2cHAL& hal_i2c_;
     ILedController& led_;
     IDayNightController& day_night_controller_;
-    CommandHandler command_handler_;
+    ICommandHandler& command_handler_;
 
     std::atomic<bool> ota_triggered_{false};
     bool wake_classified_ = false;
@@ -138,7 +139,7 @@ private:
     bool run_day_cycle();
     void enter_deep_sleep();
     esp_err_t send_night_transition_report(bool requires_ack);
-    void handle_command_process_result(const CommandProcessResult& cmd_res);
+    bool handle_command_process_result(const CommandProcessResult& cmd_res);
 
     esp_err_t init_ina_alert_pin();
     static void IRAM_ATTR ina_alert_isr_handler(void* arg);

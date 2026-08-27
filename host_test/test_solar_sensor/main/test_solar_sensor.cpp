@@ -21,6 +21,7 @@
 #include "mock_led_controller.hpp"
 #include "mocks/mock_i_wifi_manager.hpp"
 #include "mock_day_night_controller.hpp"
+#include "mock_command_handler.hpp"
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -67,6 +68,7 @@ protected:
     NiceMock<idf_hals::MockI2cHAL> hal_i2c_;
     NiceMock<MockLedController> led_;
     NiceMock<MockDayNightController> day_night_;
+    NiceMock<MockCommandHandler> command_handler_;
 
     std::unique_ptr<SolarSensor> sut_;
 
@@ -97,6 +99,7 @@ protected:
         ON_CALL(led_, init()).WillByDefault(Return(ESP_OK));
         ON_CALL(led_, start()).WillByDefault(Return(ESP_OK));
         ON_CALL(day_night_, should_enter_night_mode(_, _)).WillByDefault(Return(false));
+        ON_CALL(command_handler_, process()).WillByDefault(Return(CommandProcessResult{}));
 
         sut_ = std::make_unique<SolarSensor>(
             mock_ina_task_,
@@ -119,7 +122,8 @@ protected:
             hal_gpio_,
             hal_i2c_,
             led_,
-            day_night_);
+            day_night_,
+            command_handler_);
     }
 };
 
@@ -271,4 +275,38 @@ TEST_F(SolarSensorTest, InitFailureSetsErrorBurstLedPattern)
     EXPECT_CALL(led_, set_pattern(BlinkPattern::ERROR_BURST)).Times(1);
 
     EXPECT_EQ(sut_->init(), ESP_FAIL);
+}
+
+TEST_F(SolarSensorTest, RunDispatchesRebootCommandFromHandler)
+{
+    EXPECT_CALL(command_handler_, process())
+        .WillOnce(Return(CommandProcessResult{.reboot_requested = true}));
+    EXPECT_CALL(wifi_, disconnect(_)).Times(1);
+    EXPECT_CALL(espnow_, deinit()).Times(1);
+    EXPECT_CALL(hal_system_, restart()).Times(1);
+
+    EXPECT_FALSE(sut_->run());
+}
+
+TEST_F(SolarSensorTest, RunDispatchesTimeSyncedCommandFromHandler)
+{
+    InaSample sample{};
+    sample.isc_current_ma = 100;
+    sample.status = ESP_OK;
+
+    EXPECT_CALL(command_handler_, process())
+        .WillOnce(Return(CommandProcessResult{.time_synced = true}));
+    EXPECT_CALL(time_manager_, is_synchronized()).WillRepeatedly(Return(true));
+    EXPECT_CALL(time_manager_, get_timestamp_ms()).WillRepeatedly(Return(1767225600000ULL));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
+        .WillOnce(::testing::Invoke([sample](QueueHandle_t, void* data, TickType_t) {
+            if (data) {
+                *reinterpret_cast<InaSample*>(data) = sample;
+            }
+            return pdTRUE;
+        }))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_TRUE(sut_->run());
 }
