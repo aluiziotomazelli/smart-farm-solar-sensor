@@ -79,6 +79,12 @@ SolarSensor::SolarSensor(
 {
 }
 
+SolarSensor::~SolarSensor()
+{
+    hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
+    ina_task_handle_ = nullptr;
+}
+
 esp_err_t SolarSensor::init()
 {
     esp_err_t err;
@@ -551,6 +557,10 @@ bool SolarSensor::process_ina_samples(std::optional<time_t> unix_time)
             ina_sensor_task_.stop();
             slow_sensors_task_.stop();
 
+            // Disarm INA conversion ISR handler before night transition and NVS save
+            hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
+            ina_task_handle_ = nullptr;
+
             send_night_transition_report(/*requires_ack=*/true);
 
             hal_rtos_.task_delay(pdMS_TO_TICKS(100));
@@ -740,6 +750,8 @@ esp_err_t SolarSensor::init_ina_alert_pin()
         return err;
     }
 
+    ina_task_handle_ = ina_sensor_task_.get_task_handle();
+
     err = hal_gpio_.isr_handler_add(INA_ALERT_GPIO, ina_alert_isr_handler, this);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add INA alert ISR handler: %s", esp_err_to_name(err));
@@ -756,15 +768,16 @@ esp_err_t SolarSensor::init_ina_alert_pin()
  * @param arg Pointer to SolarSensor instance
  *
  * @note This ISR runs in IRAM for fast execution and notifies the INA sensor
- * task on every completed conversion (CNVR).
+ * task on every completed conversion (CNVR). Uses direct RAM access to avoid
+ * any virtual method / vtable lookups from Flash.
  */
 void IRAM_ATTR SolarSensor::ina_alert_isr_handler(void* arg)
 {
     auto* self = static_cast<SolarSensor*>(arg);
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    if (self->ina_sensor_task_.get_task_handle() != nullptr) {
-        vTaskNotifyGiveFromISR(self->ina_sensor_task_.get_task_handle(), &xHigherPriorityTaskWoken);
+    if (self != nullptr && self->ina_task_handle_ != nullptr) {
+        vTaskNotifyGiveFromISR(self->ina_task_handle_, &xHigherPriorityTaskWoken);
     }
 
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -949,7 +962,7 @@ bool SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_
 
     if (cmd_res.ota_requested) {
         process_pending_ota();
-        return false;
+        return true;
     }
 
     if (cmd_res.reboot_requested) {

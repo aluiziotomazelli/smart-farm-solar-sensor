@@ -56,7 +56,7 @@ public:
         IDayNightController& day_night_controller,
         ICommandHandler& command_handler);
 
-    virtual ~SolarSensor() = default;
+    virtual ~SolarSensor();
 
     esp_err_t init();
 
@@ -110,7 +110,8 @@ private:
     int64_t last_nvs_commit_ts_ = 0;
     uint8_t consecutive_ina_errors_ = 0;
     uint64_t yield_umah_accumulator_ = 0;
-    i2c_master_bus_handle_t i2c_bus_handle_;
+    i2c_master_bus_handle_t i2c_bus_handle_{nullptr};
+    TaskHandle_t ina_task_handle_{nullptr};
 
     esp_err_t init_ina_task(InaSensorConfig config);
     esp_err_t init_ina_vcc_pin();
