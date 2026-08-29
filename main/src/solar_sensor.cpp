@@ -383,17 +383,21 @@ void SolarSensor::process_pending_ota()
     bool was_ina_sampling = ina_sensor_task_.is_sampling_enabled();
     bool was_ina_reporting = ina_sensor_task_.is_reporting_enabled();
     ina_sensor_task_.stop();
+    espnow_.deinit();
 
     bool previous_connected = (wifi_.get_state() == wifi_manager::State::CONNECTED_GOT_IP);
     bool wifi_ok = previous_connected;
 
     if (!previous_connected) {
-        espnow_.set_channel_policy(espnow::ChannelPolicy::FIXED);
-        wifi_ok = (connect_wifi_with_retry(3) == ESP_OK);
+        wifi_ok = (wifi_.connect(15000, /* max attempts = */ 3) == ESP_OK);
     }
 
+    OtaActionResult result = {};
+
+    static constexpr uint32_t OTA_WATCHDOG_TIMEOUT_MS = 120000;
+
     if (wifi_ok) {
-        OtaActionResult result = ota_controller_.execute_download();
+        result = ota_controller_.execute_download(OTA_WATCHDOG_TIMEOUT_MS);
         if (result.success) {
             ESP_LOGI(TAG, "OTA download succeeded! Saving state and restarting...");
             pending_core_commit_ = true;
@@ -404,23 +408,25 @@ void SolarSensor::process_pending_ota()
             hal_system_.restart();
             return;
         }
-        else {
-            ESP_LOGE(TAG, "OTA download failed (error_code: %d)", static_cast<int>(result.error_code));
-            led_.set_pattern(BlinkPattern::ERROR_BURST);
-            send_ota_report(result.exec_result, result.error_code);
-        }
+        led_.set_pattern(BlinkPattern::ERROR_BURST);
     }
     else {
         ESP_LOGE(TAG, "Failed to connect to WiFi");
-        led_.set_pattern(BlinkPattern::ERROR_BURST);
-        send_ota_report(farm::OtaExecResult::DOWNLOAD_FAILED, farm::OtaErrorCode::WIFI_CONNECT_FAILED);
+        result.success = false;
+        result.exec_result = farm::OtaExecResult::DOWNLOAD_FAILED;
+        result.error_code = farm::OtaErrorCode::WIFI_CONNECT_FAILED;
     }
 
     // Restore components if update did not result in reboot
     if (!previous_connected) {
         wifi_.disconnect(2000);
-        espnow_.set_channel_policy(espnow::ChannelPolicy::SCAN);
     }
+
+    if (init_espnow() == ESP_OK) {
+        espnow_.set_channel_policy(previous_connected ? espnow::ChannelPolicy::FIXED : espnow::ChannelPolicy::SCAN);
+        send_ota_report(result.exec_result, result.error_code);
+    }
+
     btn_trigger_.arm(*this);
     espnow_trigger_.arm(*this);
     if (was_ina_sampling) {
@@ -453,34 +459,6 @@ esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErro
         sizeof(report),
         true // require_ack
     );
-}
-
-esp_err_t SolarSensor::connect_wifi_with_retry(uint8_t max_attempts)
-{
-    if (wifi_.get_state() == wifi_manager::State::CONNECTED_GOT_IP) {
-        return ESP_OK;
-    }
-
-    static constexpr uint16_t DELAY_BETWEEN_ATTEMPTS_MS = 1500;
-    esp_err_t err = ESP_FAIL;
-    for (uint8_t attempt = 1; attempt <= max_attempts; ++attempt) {
-        ESP_LOGI(TAG, "Connecting to WiFi (attempt %u/%u)...", attempt, max_attempts);
-        err = wifi_.connect(10000);
-        if (err == ESP_OK) {
-            ESP_LOGI(TAG, "WiFi connected successfully");
-            return ESP_OK;
-        }
-
-        ESP_LOGW(TAG, "WiFi connection attempt %u failed: %s", attempt, esp_err_to_name(err));
-        if (attempt < max_attempts) {
-            wifi_.disconnect(2000);
-            uint32_t delay_ms = DELAY_BETWEEN_ATTEMPTS_MS * attempt;
-            hal_rtos_.task_delay(pdMS_TO_TICKS(delay_ms));
-        }
-    }
-
-    ESP_LOGE(TAG, "Failed to connect to WiFi after %u attempts: %s", max_attempts, esp_err_to_name(err));
-    return err;
 }
 
 esp_err_t SolarSensor::init_ina_task(InaSensorConfig config)

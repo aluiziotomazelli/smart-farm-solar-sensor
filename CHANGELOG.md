@@ -6,7 +6,8 @@ All notable changes to the `smart-farm-solar-sensor` project will be documented 
 
 ### Changed
 - Fixed issue where ISR was not removed before night transition and NVS save.
-- Fixed IRAM_ATTR macro usage to use `xSemaphoreGiveFromISR` instead of wrapper.
+- Refactored `process_pending_ota` to deinitialize `EspNowManager` prior to OTA download and restore on fallback.
+- Removed obsolete `connect_wifi_with_retry` helper in favor of `WiFiManager::connect(timeout, max_attempts)`.
 - Bumped firmware version to `0.1.5`.
 
 ## [0.1.4] - 2026-08-26

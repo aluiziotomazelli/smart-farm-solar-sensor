@@ -127,7 +127,6 @@ private:
     esp_err_t send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code = farm::OtaErrorCode::NONE);
     bool is_firmware_healthy(bool healthy);
 
-    esp_err_t connect_wifi_with_retry(uint8_t max_attempts);
     std::optional<time_t> get_synced_time() const;
     void save_persistent_state();
     bool process_ina_samples(std::optional<time_t> unix_time);
