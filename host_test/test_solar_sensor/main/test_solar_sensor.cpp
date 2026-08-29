@@ -56,7 +56,6 @@ protected:
     NiceMock<idf_hals::MockTimerHAL> hal_timer_;
     NiceMock<MockOtaController> ota_controller_;
     NiceMock<MockOtaTrigger> btn_trigger_;
-    NiceMock<MockOtaTrigger> espnow_trigger_;
     NiceMock<espnow::MockEspNowManager> espnow_;
     QueueHandle_t rx_queue_ = reinterpret_cast<QueueHandle_t>(0x9999);
     NiceMock<wifi_manager::MockWiFiManager> wifi_;
@@ -111,7 +110,6 @@ protected:
             hal_timer_,
             ota_controller_,
             btn_trigger_,
-            espnow_trigger_,
             espnow_,
             rx_queue_,
             wifi_,
@@ -156,7 +154,6 @@ TEST_F(SolarSensorTest, RunProcessesOtaTriggerWhenSet)
         .WillRepeatedly(Return(pdFALSE));
 
     EXPECT_CALL(btn_trigger_, disarm()).Times(1);
-    EXPECT_CALL(espnow_trigger_, disarm()).Times(1);
     EXPECT_CALL(mock_ina_task_, stop()).Times(1);
 
     EXPECT_TRUE(sut_->run());

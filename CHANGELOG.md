@@ -8,6 +8,7 @@ All notable changes to the `smart-farm-solar-sensor` project will be documented 
 - Fixed issue where ISR was not removed before night transition and NVS save.
 - Refactored `process_pending_ota` to deinitialize `EspNowManager` prior to OTA download and restore on fallback.
 - Removed obsolete `connect_wifi_with_retry` helper in favor of `WiFiManager::connect(timeout, max_attempts)`.
+- Removed obsolete `espnow_trigger` dependency and aligned with `CommandHandler` OTA trigger architecture.
 - Bumped firmware version to `0.1.5`.
 
 ## [0.1.4] - 2026-08-26

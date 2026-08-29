@@ -26,7 +26,6 @@
 #include "ota_manager.hpp"
 #include "ota_controller.hpp"
 #include "button_ota_trigger.hpp"
-#include "espnow_ota_trigger.hpp"
 #include "espnow_manager.hpp"
 #include "wifi_manager.hpp"
 #include "time_manager.hpp"
@@ -148,9 +147,8 @@ static OtaDependencies ota_deps = {
 static OtaManager ota_manager(ota_deps);
 static OtaController ota_controller(ota_manager, hal_freertos);
 
-// OTA triggers: boot button + espnow
+// OTA trigger: boot button
 static ButtonOtaTrigger btn_trigger(hal_gpio, hal_freertos, BOOT_BUTTON_GPIO, 200);
-static EspNowOtaTrigger espnow_ota_trigger;
 
 // Status LED Controller
 static LedConfig led_config{
@@ -196,7 +194,6 @@ extern "C" void app_main()
         hal_timer,
         ota_controller,
         btn_trigger,
-        espnow_ota_trigger,
         espnow,
         rx_queue,
         wifi,

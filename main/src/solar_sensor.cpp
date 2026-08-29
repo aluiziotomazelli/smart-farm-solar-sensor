@@ -41,7 +41,6 @@ SolarSensor::SolarSensor(
     idf_hals::ITimerHAL& hal_timer,
     IOtaController& ota_controller,
     IOtaTrigger& btn_trigger,
-    IOtaTrigger& espnow_trigger,
     espnow::IEspNowManager& espnow,
     QueueHandle_t rx_queue_,
     wifi_manager::IWiFiManager& wifi,
@@ -63,7 +62,6 @@ SolarSensor::SolarSensor(
     , hal_timer_(hal_timer)
     , ota_controller_(ota_controller)
     , btn_trigger_(btn_trigger)
-    , espnow_trigger_(espnow_trigger)
     , espnow_(espnow)
     , rx_queue_(rx_queue_)
     , wifi_(wifi)
@@ -97,7 +95,6 @@ esp_err_t SolarSensor::init()
 
     // Arm OTA triggers
     btn_trigger_.arm(*this);
-    espnow_trigger_.arm(*this);
 
     // 1. Initialize OtaController
     OtaConfig ota_config{
@@ -379,7 +376,6 @@ void SolarSensor::process_pending_ota()
     led_.set_pattern(BlinkPattern::OTA_UPDATING);
 
     btn_trigger_.disarm();
-    espnow_trigger_.disarm();
     bool was_ina_sampling = ina_sensor_task_.is_sampling_enabled();
     bool was_ina_reporting = ina_sensor_task_.is_reporting_enabled();
     ina_sensor_task_.stop();
@@ -428,7 +424,6 @@ void SolarSensor::process_pending_ota()
     }
 
     btn_trigger_.arm(*this);
-    espnow_trigger_.arm(*this);
     if (was_ina_sampling) {
         ina_sensor_task_.set_sampling_enabled(true);
     }

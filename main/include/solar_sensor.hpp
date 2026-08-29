@@ -42,7 +42,6 @@ public:
         idf_hals::ITimerHAL& hal_timer,
         IOtaController& ota_controller,
         IOtaTrigger& btn_trigger,
-        IOtaTrigger& espnow_trigger,
         espnow::IEspNowManager& espnow,
         QueueHandle_t rx_queue,
         wifi_manager::IWiFiManager& wifi,
@@ -91,7 +90,6 @@ private:
     idf_hals::ITimerHAL& hal_timer_;
     IOtaController& ota_controller_;
     IOtaTrigger& btn_trigger_;
-    IOtaTrigger& espnow_trigger_;
     espnow::IEspNowManager& espnow_;
     QueueHandle_t rx_queue_;
     wifi_manager::IWiFiManager& wifi_;
