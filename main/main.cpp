@@ -179,14 +179,14 @@ extern "C" void app_main()
     auto& espnow = espnow::EspNowManager::instance();
 
     // Instantiate INA Sensor Task (power control managed by the app, not the task)
-    ina::InaSensorTask ina_task{
+    static ina::InaSensorTask ina_task{
         ina_driver, espnow, hal_timer, hal_freertos, time_mgr, g_telemetry_snapshot, ina_sample_queue};
 
     // Instantiate CommandHandler
-    CommandHandler command_handler{rx_queue, espnow, time_mgr, hal_freertos};
+    static CommandHandler command_handler{rx_queue, espnow, time_mgr, hal_freertos};
 
     // Instantiate app with dependencies
-    SolarSensor solar(
+    static SolarSensor solar(
         ina_task,
         ina_sample_queue,
         g_telemetry_snapshot,

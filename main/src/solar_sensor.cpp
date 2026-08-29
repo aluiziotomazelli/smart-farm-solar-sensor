@@ -79,6 +79,12 @@ SolarSensor::SolarSensor(
 {
 }
 
+SolarSensor::~SolarSensor()
+{
+    hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
+    ina_task_handle_ = nullptr;
+}
+
 esp_err_t SolarSensor::init()
 {
     esp_err_t err;
@@ -956,7 +962,7 @@ bool SolarSensor::handle_command_process_result(const CommandProcessResult& cmd_
 
     if (cmd_res.ota_requested) {
         process_pending_ota();
-        return false;
+        return true;
     }
 
     if (cmd_res.reboot_requested) {

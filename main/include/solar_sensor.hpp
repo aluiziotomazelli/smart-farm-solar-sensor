@@ -56,7 +56,7 @@ public:
         IDayNightController& day_night_controller,
         ICommandHandler& command_handler);
 
-    virtual ~SolarSensor() = default;
+    virtual ~SolarSensor();
 
     esp_err_t init();
 
