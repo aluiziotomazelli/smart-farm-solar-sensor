@@ -2,6 +2,13 @@
 
 All notable changes to the `smart-farm-solar-sensor` project will be documented in this file.
 
+## [0.1.5] - 2026-08-29
+
+### Changed
+- Fixed issue where ISR was not removed before night transition and NVS save.
+- Fixed IRAM_ATTR macro usage to use `xSemaphoreGiveFromISR` instead of wrapper.
+- Bumped firmware version to `0.1.5`.
+
 ## [0.1.4] - 2026-08-26
 
 ### Added
