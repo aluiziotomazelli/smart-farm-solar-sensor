@@ -8,8 +8,8 @@ time_t make_test_time(uint16_t day_of_year, uint8_t hour, uint8_t minute)
 {
     // 2026-01-01 00:00:00 UTC = 1767225600
     constexpr time_t BASE_EPOCH_2026 = 1767225600;
-    return BASE_EPOCH_2026 + static_cast<time_t>(day_of_year - 1) * 86400 +
-           static_cast<time_t>(hour) * 3600 + static_cast<time_t>(minute) * 60;
+    return BASE_EPOCH_2026 + static_cast<time_t>(day_of_year - 1) * 86400 + static_cast<time_t>(hour) * 3600 +
+           static_cast<time_t>(minute) * 60;
 }
 
 } // namespace
@@ -17,7 +17,7 @@ time_t make_test_time(uint16_t day_of_year, uint8_t hour, uint8_t minute)
 class DayNightControllerTest : public ::testing::Test
 {
 protected:
-    SunSchedule sun_schedule_{DEFAULT_LATITUDE_DEG, 0.0f}; // UTC in tests for direct hour/minute matching
+    SunSchedule sun_schedule_{-23.0f, 0.0f}; // UTC in tests for direct hour/minute matching
     DayNightConfig config_{};
     std::unique_ptr<DayNightController> sut_;
 
@@ -27,7 +27,7 @@ protected:
         config_.dawn_current_threshold_ma = DEFAULT_DAWN_CURRENT_THRESHOLD_MA;
         config_.calibration_wake_hour = DEFAULT_CALIBRATION_HOUR_UTC;
         config_.fallback_sleep_sec = DEFAULT_FALLBACK_NIGHT_SLEEP_SEC;
-        config_.hysteresis_sample_count = 3; // Reduced for fast unit testing
+        config_.hysteresis_sample_count = 3;          // Reduced for fast unit testing
         config_.unsynced_hysteresis_sample_count = 3; // Reduced for fast unit testing
 
         sut_ = std::make_unique<DayNightController>(sun_schedule_, config_);
@@ -39,7 +39,7 @@ TEST_F(DayNightControllerTest, ShouldEnterNightModeUnsyncedRequiresHysteresis)
     // Unsynced clock: depends only on current < dusk threshold (1 mA) with unsynced hysteresis
     EXPECT_FALSE(sut_->should_enter_night_mode(0, std::nullopt));
     EXPECT_FALSE(sut_->should_enter_night_mode(0, std::nullopt));
-    
+
     // Third consecutive sample below threshold triggers night mode (hysteresis = 3)
     EXPECT_TRUE(sut_->should_enter_night_mode(0, std::nullopt));
 }
@@ -72,7 +72,7 @@ TEST_F(DayNightControllerTest, ShouldEnterNightModeSyncedTriggersAtSunsetWindow)
     time_t sunset_window = make_test_time(81, 18, 30);
     EXPECT_FALSE(sut_->should_enter_night_mode(0, sunset_window));
     EXPECT_FALSE(sut_->should_enter_night_mode(0, sunset_window));
-    
+
     // 3rd consecutive sample in dusk window triggers night mode
     EXPECT_TRUE(sut_->should_enter_night_mode(0, sunset_window));
 }
