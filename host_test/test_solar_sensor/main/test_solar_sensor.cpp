@@ -69,14 +69,30 @@ protected:
     NiceMock<MockDayNightController> day_night_;
     NiceMock<MockCommandHandler> command_handler_;
 
-    std::unique_ptr<SolarSensor> sut_;
+    class TestableSolarSensor : public SolarSensor
+    {
+    public:
+        using SolarSensor::SolarSensor;
+        using SolarSensor::ensure_communication_ready;
+    };
+
+    std::unique_ptr<TestableSolarSensor> sut_;
+
+    uint64_t fake_time_us_ = 1000ULL;
 
     void SetUp() override
     {
+        fake_time_us_ = 1000ULL;
         rtc_core_backend_.UseRealStorage();
         nvs_core_backend_.UseRealStorage();
         rtc_solar_backend_.UseRealStorage();
         nvs_solar_backend_.UseRealStorage();
+
+        ON_CALL(hal_timer_, get_time_us()).WillByDefault(::testing::Invoke([this]() {
+            uint64_t ret = fake_time_us_;
+            fake_time_us_ += 50000ULL; // Advance 50ms per call
+            return ret;
+        }));
 
         ON_CALL(hal_rtos_, queue_receive(rx_queue_, _, _)).WillByDefault(Return(pdFALSE));
         ON_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _)).WillByDefault(Return(pdFALSE));
@@ -93,6 +109,7 @@ protected:
         ON_CALL(wifi_, add_credentials(_, _)).WillByDefault(Return(ESP_OK));
         ON_CALL(time_manager_, init(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(espnow_, init(_)).WillByDefault(Return(ESP_OK));
+        ON_CALL(espnow_, get_node_state()).WillByDefault(Return(espnow::NodeState::OPERATIONAL));
         ON_CALL(hal_gpio_, config(_)).WillByDefault(Return(ESP_OK));
         ON_CALL(hal_gpio_, isr_handler_add(_, _, _)).WillByDefault(Return(ESP_OK));
         ON_CALL(led_, init()).WillByDefault(Return(ESP_OK));
@@ -100,7 +117,7 @@ protected:
         ON_CALL(day_night_, should_enter_night_mode(_, _)).WillByDefault(Return(false));
         ON_CALL(command_handler_, process()).WillByDefault(Return(CommandProcessResult{}));
 
-        sut_ = std::make_unique<SolarSensor>(
+        sut_ = std::make_unique<TestableSolarSensor>(
             mock_ina_task_,
             dummy_queue_,
             snapshot_,
@@ -306,4 +323,72 @@ TEST_F(SolarSensorTest, RunDispatchesTimeSyncedCommandFromHandler)
         .WillRepeatedly(Return(pdFALSE));
 
     EXPECT_TRUE(sut_->run());
+}
+
+TEST_F(SolarSensorTest, EnsureCommunicationReady_ReturnsTrueIfOperational)
+{
+    EXPECT_CALL(hal_rtos_, task_delay(pdMS_TO_TICKS(100))).Times(1);
+    EXPECT_CALL(espnow_, get_node_state()).WillOnce(Return(espnow::NodeState::OPERATIONAL));
+
+    EXPECT_TRUE(sut_->ensure_communication_ready(3));
+}
+
+TEST_F(SolarSensorTest, EnsureCommunicationReady_RecoversFromIdleAndReturnsTrue)
+{
+    EXPECT_CALL(espnow_, get_node_state())
+        .WillOnce(Return(espnow::NodeState::IDLE))
+        .WillOnce(Return(espnow::NodeState::RECOVERY_SCAN))
+        .WillOnce(Return(espnow::NodeState::OPERATIONAL));
+
+    EXPECT_CALL(espnow_, reconnect()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_rtos_, task_delay(pdMS_TO_TICKS(100))).Times(1);
+    EXPECT_CALL(hal_rtos_, task_delay(pdMS_TO_TICKS(30))).Times(2);
+
+    EXPECT_TRUE(sut_->ensure_communication_ready(3));
+}
+
+TEST_F(SolarSensorTest, EnsureCommunicationReady_WaitsAndReturnsFalseIfAllAttemptsFail)
+{
+    EXPECT_CALL(espnow_, get_node_state()).WillRepeatedly(Return(espnow::NodeState::RECOVERY_SCAN));
+    EXPECT_CALL(hal_rtos_, task_delay(pdMS_TO_TICKS(100))).Times(1);
+    EXPECT_CALL(hal_rtos_, task_delay(pdMS_TO_TICKS(30))).Times(testing::AtLeast(1));
+
+    EXPECT_FALSE(sut_->ensure_communication_ready(2));
+}
+
+TEST_F(SolarSensorTest, RunProcessesInaSamplesAndRetriesNightReportIfFirstAttemptFails)
+{
+    InaSample sample{};
+    sample.isc_current_ma = 0;
+    sample.status = ESP_OK;
+
+    EXPECT_CALL(day_night_, should_enter_night_mode(0, _)).WillOnce(Return(true));
+    EXPECT_CALL(day_night_, calculate_night_sleep_time_us(_)).WillOnce(Return(3600000000ULL));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(rx_queue_, _, _))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(hal_rtos_, queue_receive(dummy_queue_, _, _))
+        .WillOnce(::testing::Invoke([sample](QueueHandle_t, void* data, TickType_t) {
+            if (data) {
+                *reinterpret_cast<InaSample*>(data) = sample;
+            }
+            return pdTRUE;
+        }))
+        .WillRepeatedly(Return(pdFALSE));
+
+    EXPECT_CALL(espnow_, send_data(espnow::ReservedIds::HUB, static_cast<uint8_t>(farm::PayloadType::SOLAR_SENSOR_REPORT), _, _, true))
+        .WillOnce(Return(ESP_FAIL))
+        .WillOnce(Return(ESP_OK));
+
+    EXPECT_CALL(led_, set_pattern(BlinkPattern::ERROR_BURST)).Times(1);
+    EXPECT_CALL(led_, set_pattern(BlinkPattern::ENTER_SLEEP)).Times(1);
+    EXPECT_CALL(espnow_, get_node_state()).WillRepeatedly(Return(espnow::NodeState::OPERATIONAL));
+
+    EXPECT_CALL(mock_ina_task_, prepare_for_sleep()).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_sleep_, enable_timer_wakeup(_)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_sleep_, deep_sleep_enable_gpio_wakeup(_, _)).WillOnce(Return(ESP_OK));
+    EXPECT_CALL(hal_sleep_, deep_sleep_start()).Times(1);
+
+    EXPECT_FALSE(sut_->run());
 }

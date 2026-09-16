@@ -15,6 +15,9 @@ static const char* TAG = "SolarSensor";
 
 static constexpr uint16_t DEEP_SLEEP_TIME_MIN = 60;
 
+static constexpr uint32_t SINGLE_PASS_TIMEOUT_MS =
+    espnow::SCAN_CHANNEL_TIMEOUT_MS * espnow::SCAN_CHANNEL_ATTEMPTS * 13 + 200;
+
 // ============== INA226 Config ==============
 // The daytime regime is the default and lives in the Ina226Driver construction
 // (main.cpp); InaSensorTask::init() arms the conversion-ready alert (CNVR).
@@ -253,7 +256,7 @@ esp_err_t SolarSensor::init_wifi()
     if ((err = wifi_.add_credentials(WIFI_SSID, WIFI_PASS)) != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi credentials: %s", esp_err_to_name(err));
     }
-    if ((err = wifi_.start()) != ESP_OK) {
+    if ((err = wifi_.start(3000)) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start WiFiManager: %s", esp_err_to_name(err));
         return err;
     }
@@ -434,6 +437,10 @@ void SolarSensor::process_pending_ota()
 
 esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErrorCode error_code)
 {
+    if (!ensure_communication_ready()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     farm::OtaStatusReport report = {};
     report.power_profile = core_.power_profile;
     report.result = result;
@@ -454,6 +461,45 @@ esp_err_t SolarSensor::send_ota_report(farm::OtaExecResult result, farm::OtaErro
         sizeof(report),
         true // require_ack
     );
+}
+
+bool SolarSensor::ensure_communication_ready(uint8_t max_scan_attempts)
+{
+    // Yield to allow RX task to process any pending notifications (e.g., MAX_FAILURES from TxManager)
+    hal_rtos_.task_delay(pdMS_TO_TICKS(100));
+
+    espnow::NodeState state = espnow_.get_node_state();
+    if (state == espnow::NodeState::OPERATIONAL) {
+        return true;
+    }
+
+    constexpr uint32_t POLL_DELAY_MS = 30;
+
+    for (uint8_t attempt = 1; attempt <= max_scan_attempts; ++attempt) {
+        if (state == espnow::NodeState::IDLE) {
+            espnow_.reconnect();
+        }
+
+        int64_t deadline_ms = (hal_timer_.get_time_us() / 1000) + SINGLE_PASS_TIMEOUT_MS;
+
+        while ((hal_timer_.get_time_us() / 1000) < deadline_ms) {
+            hal_rtos_.task_delay(pdMS_TO_TICKS(POLL_DELAY_MS));
+            state = espnow_.get_node_state();
+
+            if (state == espnow::NodeState::OPERATIONAL) {
+                ESP_LOGI(TAG, "ESP-NOW recovered channel on attempt %u", attempt);
+                return true;
+            }
+
+            if (state == espnow::NodeState::IDLE) {
+                break;
+            }
+        }
+    }
+
+    ESP_LOGE(
+        TAG, "ESP-NOW failed to recover after %u attempts (state: %d)", max_scan_attempts, static_cast<int>(state));
+    return false;
 }
 
 esp_err_t SolarSensor::init_ina_task(InaSensorConfig config)
@@ -534,7 +580,17 @@ bool SolarSensor::process_ina_samples(std::optional<time_t> unix_time)
             hal_gpio_.isr_handler_remove(INA_ALERT_GPIO);
             ina_task_handle_ = nullptr;
 
-            send_night_transition_report(/*requires_ack=*/true);
+            esp_err_t send_err = send_night_transition_report(/*requires_ack=*/true);
+            if (send_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to send night report on first attempt: %s", esp_err_to_name(send_err));
+                led_.set_pattern(BlinkPattern::ERROR_BURST);
+                if (ensure_communication_ready(3)) {
+                    send_err = send_night_transition_report(/*requires_ack=*/true);
+                    if (send_err == ESP_OK) {
+                        ESP_LOGI(TAG, "Night report sent to Hub on retry.");
+                    }
+                }
+            }
 
             hal_rtos_.task_delay(pdMS_TO_TICKS(100));
 
@@ -860,7 +916,17 @@ void SolarSensor::process_night_calibration()
             stats_.shunt_zero_offset_uv);
     }
 
-    send_night_transition_report(/*requires_ack=*/true);
+    esp_err_t send_err = send_night_transition_report(/*requires_ack=*/true);
+    if (send_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to send night calibration report on first attempt: %s", esp_err_to_name(send_err));
+        led_.set_pattern(BlinkPattern::ERROR_BURST);
+        if (ensure_communication_ready(3)) {
+            send_err = send_night_transition_report(/*requires_ack=*/true);
+            if (send_err == ESP_OK) {
+                ESP_LOGI(TAG, "Night calibration report sent to Hub on retry.");
+            }
+        }
+    }
 
     hal_rtos_.task_delay(pdMS_TO_TICKS(100));
 

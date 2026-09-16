@@ -2,6 +2,13 @@
 
 All notable changes to the `smart-farm-solar-sensor` project will be documented in this file.
 
+## [0.1.6] - 2026-09-15
+
+### Fixed
+- Added `ensure_communication_ready` with channel recovery loop and retry handling for `send_night_transition_report` on dusk transition and night calibration before entering deep sleep.
+- Ensured synchronous Wi-Fi start on boot with 3000 ms timeout (`wifi_.start(3000)`) in `SolarSensor::init_wifi()`.
+- Guarded `send_ota_report` with `ensure_communication_ready()` before dispatching OTA status packet.
+
 ## [0.1.5] - 2026-08-29
 
 ### Changed

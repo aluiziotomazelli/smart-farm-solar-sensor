@@ -80,6 +80,8 @@ protected:
     bool pending_core_commit_ = false;
     bool pending_solar_commit_ = false;
 
+    bool ensure_communication_ready(uint8_t max_scan_attempts = 3);
+
 private:
     ina::IInaSensorTask& ina_sensor_task_;
     QueueHandle_t ina_sample_queue_;
